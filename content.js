@@ -2,9 +2,11 @@
 const SELECTORS = {
     scoreContainer: '.zYqAyf', 
     earnedScore: '.wyQ9e',     
-    overallGrade: '[jsname="V67aGc"]' 
+    overallGrade: '[jsname="V67aGc"]'
 };
 
+// Changes every google classroom update (no clue when) so if it breaks, inspect the elements and update the selectors accordingly.
+// Actually idk the jsname might not change. Last update: 2025-3-13
 
 function getOverallGradeElement() {
     const potentialElements = document.querySelectorAll(SELECTORS.overallGrade);
@@ -102,3 +104,14 @@ const observer = new MutationObserver((mutations) => {
 
 observer.observe(document.body, { childList: true, subtree: true });
 injectHypotheticalInputs();
+
+// breaks on SPA navigation, so we need to re-inject the inputs when the URL changes. simple way to detect URL changes without relying on specific events.
+/*
+let lastURL = location.href;
+setInterval(() => {
+    if (location.href !== lastURL) {
+        lastURL = location.href;
+        injectHypotheticalInputs();
+    }
+}, 1000);
+*/
