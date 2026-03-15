@@ -275,7 +275,7 @@ const observer = new MutationObserver((mutations) => {
 
 observer.observe(document.body, { childList: true, subtree: true });
 injectHypotheticalInputs();
-injectBuyMeACoffee();
+injectSupport();
 
 let lastURL = location.href;
 setInterval(() => {
@@ -304,12 +304,12 @@ setInterval(() => {
     }
 }, 1000);
 
-function injectBuyMeACoffee() {
+function injectSupport() {
     if (document.getElementById('bmac-grade-calc-btn')) return;
 
     const bmacLink = document.createElement('a');
     bmacLink.id = 'bmac-grade-calc-btn';
-    bmacLink.href = 'https://buymeacoffee.com/dareallando123'; 
+    bmacLink.href = 'https://ko-fi.com/dareallando123/'; 
     bmacLink.target = '_blank'; 
 
     bmacLink.style.position = 'fixed';
