@@ -7,10 +7,23 @@ const SELECTORS = {
 };
 
 let dynamicCategoryWeights = null;
+window.hasAutoClicked = false; // Flag to prevent infinite click loops
 
 function getCourseId() {
     const match = location.href.match(/\/c\/([a-zA-Z0-9_]+)/);
     return match ? match[1] : 'unknown';
+}
+
+// Simulates a full mouse interaction to bypass strict event listeners
+function triggerNativeClick(el) {
+    ['mousedown', 'mouseup', 'click'].forEach(eventType => {
+        el.dispatchEvent(new MouseEvent(eventType, {
+            view: window,
+            bubbles: true,
+            cancelable: true,
+            buttons: 1
+        }));
+    });
 }
 
 function scrapeCategoryWeights() {
@@ -34,7 +47,6 @@ function scrapeCategoryWeights() {
 
     if (Object.keys(scrapedWeights).length > 0) {
         dynamicCategoryWeights = scrapedWeights;
-        // shese weights to memory
         localStorage.setItem('gclass_weights_' + getCourseId(), JSON.stringify(scrapedWeights));
         window.isKnownUnweighted = false;
     }
@@ -54,6 +66,7 @@ function getDetailsElement() {
     const potentialElements = document.querySelectorAll(SELECTORS.overallGrade);
     for (const el of potentialElements) {
         const text = el.textContent;
+        // Looking for the "View details" button specifically
         if ((text.includes('View details') || text.includes('hypothetical') || text.includes('Weighted')) && el.getBoundingClientRect().width > 0) {
             return el;
         }
@@ -67,10 +80,7 @@ function injectHypotheticalInputs() {
     const courseId = getCourseId();
     const storageKey = 'gclass_weights_' + courseId;
 
-    // initialize unweighted flag if it doesn't exist
-    if (window.isKnownUnweighted === undefined) {
-        window.isKnownUnweighted = false;
-    }
+    if (window.isKnownUnweighted === undefined) window.isKnownUnweighted = false;
 
     if (!dynamicCategoryWeights && !window.isKnownUnweighted) {
         const saved = localStorage.getItem(storageKey);
@@ -81,6 +91,18 @@ function injectHypotheticalInputs() {
                 dynamicCategoryWeights = JSON.parse(saved);
             } catch(e) {}
         }
+    }
+
+    const detailsElement = getDetailsElement();
+
+    // AUTO-CLICK LOGIC: If weights aren't loaded and we haven't clicked yet, trigger it.
+    if (detailsElement && !dynamicCategoryWeights && !window.isKnownUnweighted && !window.hasAutoClicked) {
+        window.hasAutoClicked = true; 
+        setTimeout(() => {
+            triggerNativeClick(detailsElement);
+            // Optional: You could add logic here to find and click the "Close" button 
+            // of the modal after a 500ms delay to hide the UI pop-up.
+        }, 800);
     }
 
     const scoreContainers = document.querySelectorAll(SELECTORS.scoreContainer);
@@ -96,7 +118,6 @@ function injectHypotheticalInputs() {
     }
 
     const hasCategories = document.querySelector(SELECTORS.categoryLabel) !== null;
-    
     const isLocked = hasCategories && !dynamicCategoryWeights && !window.isKnownUnweighted;
 
     scoreContainers.forEach(container => {
@@ -129,7 +150,6 @@ function injectHypotheticalInputs() {
                 input.dataset.category = categoryText;
             }
             input.disabled = isLocked;
-            input.title = isLocked ? "Click the button above to load weights!" : "";
             return;
         }
 
@@ -140,13 +160,10 @@ function injectHypotheticalInputs() {
         input.dataset.possible = possible; 
         input.dataset.original = earned; 
         input.dataset.category = categoryText; 
-        
         input.disabled = isLocked;
-        input.title = isLocked ? "Click the button above to load weights!" : "";
 
         input.addEventListener('click', (e) => e.stopPropagation());
         input.addEventListener('mousedown', (e) => e.stopPropagation());
-
         input.addEventListener('input', () => {
             const topGrade = getOverallGradeElement();
             if (topGrade) recalculateOverall(topGrade);
@@ -155,8 +172,6 @@ function injectHypotheticalInputs() {
         earnedSpan.style.display = 'none';
         earnedSpan.parentNode.insertBefore(input, earnedSpan);
     });
-
-    const detailsElement = getDetailsElement();
 
     if (detailsElement) {
         if (!detailsElement.dataset.clickListenerAttached) {
@@ -175,23 +190,17 @@ function injectHypotheticalInputs() {
         }
 
         const currentText = detailsElement.textContent.trim();
-        if (currentText !== 'Click here to enable hypothetical grading for this class' && currentText !== 'Using Weighted Categories') {
+        if (!currentText.includes('enable') && !currentText.includes('Using')) {
             detailsElement.dataset.originalText = currentText;
         }
 
         if (hasCategories && !window.isKnownUnweighted) {
             if (isLocked) {
-                detailsElement.textContent = 'Click here to enable hypothetical grading for this class';
+                detailsElement.textContent = 'Click here to enable hypothetical grading';
                 detailsElement.style.color = '#d93025'; 
             } else if (dynamicCategoryWeights) {
                 detailsElement.textContent = 'Using Weighted Categories';
                 detailsElement.style.color = '#188038'; 
-            }
-        } else {
-
-            if (detailsElement.dataset.originalText) {
-                detailsElement.textContent = detailsElement.dataset.originalText;
-                detailsElement.style.color = ''; 
             }
         }
     }
@@ -201,7 +210,6 @@ function injectHypotheticalInputs() {
 
 function recalculateOverall(overallGradeElement) {
     let isChanged = false;
-    let totalPossibleCheck = 0; 
     const inputs = document.querySelectorAll('.what-if-input');
     
     let categoryTotals = {};
@@ -216,118 +224,54 @@ function recalculateOverall(overallGradeElement) {
         const possibleValue = parseFloat(input.dataset.possible) || 0;
         const cat = input.dataset.category;
 
-        if (currentValue !== originalValue) {
-            isChanged = true;
-        }
+        if (currentValue !== originalValue) isChanged = true;
 
         standardTotalEarned += currentValue;
         standardTotalPossible += possibleValue;
-        totalPossibleCheck += possibleValue;
 
-        if (!categoryTotals[cat]) {
-            categoryTotals[cat] = { earned: 0, possible: 0 };
-        }
+        if (!categoryTotals[cat]) categoryTotals[cat] = { earned: 0, possible: 0 };
         categoryTotals[cat].earned += currentValue;
         categoryTotals[cat].possible += possibleValue;
     });
 
-    if (totalPossibleCheck > 0 && overallGradeElement) {
+    if (standardTotalPossible > 0 && overallGradeElement) {
         if (isChanged) {
             let finalPercentage = 0;
-
             if (dynamicCategoryWeights) {
-                let weightedGradeSum = 0;
-                let totalWeightUsed = 0;
-
+                let weightedSum = 0;
+                let totalWeight = 0;
                 for (let cat in dynamicCategoryWeights) {
                     if (categoryTotals[cat] && categoryTotals[cat].possible > 0) {
-                        let catPercentage = categoryTotals[cat].earned / categoryTotals[cat].possible;
-                        weightedGradeSum += (catPercentage * dynamicCategoryWeights[cat]);
-                        totalWeightUsed += dynamicCategoryWeights[cat]; 
+                        weightedSum += (categoryTotals[cat].earned / categoryTotals[cat].possible) * dynamicCategoryWeights[cat];
+                        totalWeight += dynamicCategoryWeights[cat];
                     }
                 }
-                
-                if (totalWeightUsed > 0) {
-                    finalPercentage = (weightedGradeSum / totalWeightUsed) * 100;
-                }
+                finalPercentage = totalWeight > 0 ? (weightedSum / totalWeight) * 100 : 0;
             } else {
                 finalPercentage = (standardTotalEarned / standardTotalPossible) * 100;
             }
-
             overallGradeElement.innerText = `${finalPercentage.toFixed(2)}% (Hypothetical)`;
-            overallGradeElement.classList.add('hypothetical-changed');
-        } else {
-            if (overallGradeElement.dataset.originalText) {
-                overallGradeElement.innerText = overallGradeElement.dataset.originalText;
-            }
-            overallGradeElement.classList.remove('hypothetical-changed');
+        } else if (overallGradeElement.dataset.originalText) {
+            overallGradeElement.innerText = overallGradeElement.dataset.originalText;
         }
     }
 }
 
-let observerTimer;
-const observer = new MutationObserver((mutations) => {
-    clearTimeout(observerTimer);
-    observerTimer = setTimeout(() => {
-        injectHypotheticalInputs();
-    }, 150); 
-});
-
+// Observer and URL monitoring
+const observer = new MutationObserver(() => injectHypotheticalInputs());
 observer.observe(document.body, { childList: true, subtree: true });
-injectHypotheticalInputs();
-injectSupport();
 
 let lastURL = location.href;
 setInterval(() => {
     if (location.href !== lastURL) {
         lastURL = location.href;
-        
+        window.hasAutoClicked = false; // Reset for new class page
         dynamicCategoryWeights = null; 
         window.isKnownUnweighted = false;
-        
-        const overallGradeElement = getOverallGradeElement();
-        if (overallGradeElement && overallGradeElement.dataset.originalText) {
-            overallGradeElement.innerText = overallGradeElement.dataset.originalText;
-            overallGradeElement.classList.remove('hypothetical-changed');
-        }
-
-        const detailsElement = getDetailsElement();
-        if (detailsElement && detailsElement.dataset.originalText) {
-            detailsElement.textContent = detailsElement.dataset.originalText;
-            detailsElement.style.color = '';
-        }
-        
         document.querySelectorAll('.what-if-input').forEach(input => input.remove());
         document.querySelectorAll(SELECTORS.earnedScore).forEach(span => span.style.display = '');
-        
         injectHypotheticalInputs();
     }
 }, 1000);
 
-function injectSupport() {
-    if (document.getElementById('bmac-grade-calc-btn')) return;
-
-    const bmacLink = document.createElement('a');
-    bmacLink.id = 'bmac-grade-calc-btn';
-    bmacLink.href = 'https://ko-fi.com/dareallando123/'; 
-    bmacLink.target = '_blank'; 
-
-    bmacLink.style.position = 'fixed';
-    bmacLink.style.bottom = '60px';
-    bmacLink.style.right = '15px';
-    bmacLink.style.zIndex = '99999'; 
-    bmacLink.style.transition = 'transform 0.2s ease-in-out';
-
-    const bmacImg = document.createElement('img');
-    bmacImg.src =  chrome.runtime.getURL("icon128.png");
-    bmacImg.alt = 'Buy Me A Coffee';
-    bmacImg.style.height = '45px'; 
-    bmacImg.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)';
-    bmacImg.style.borderRadius = '8px';
-
-    bmacLink.onmouseover = () => bmacLink.style.transform = 'scale(1.05)';
-    bmacLink.onmouseout = () => bmacLink.style.transform = 'scale(1)';
-
-    bmacLink.appendChild(bmacImg);
-    document.body.appendChild(bmacLink);
-}
+injectHypotheticalInputs();
