@@ -7,11 +7,11 @@ const SELECTORS = {
     modalWrapper: '.g3V99b'
 };
 
-let dynamicCategoryWeights = null;
-window.hasAutoClicked = false; 
-
+//weights by courseId to prevent state bleed
+window.gclassCourseWeightsRegistry = window.gclassCourseWeightsRegistry || {};
 window.scrolledCoursesRegistry = window.scrolledCoursesRegistry || {}; 
 window.whatIfState = window.whatIfState || {}; 
+window.hasAutoClicked = false; 
 
 if (!document.getElementById('what-if-loader-styles')) {
     const styleEl = document.createElement('style');
@@ -45,14 +45,13 @@ if (!document.getElementById('what-if-loader-styles')) {
             border-radius: 50%;
             animation: whatIfColorThrob 3s infinite ease-in-out;
         }
-        
         .what-if-donate-btn {
             position: fixed;
             bottom: 24px;
-            left: 24px; /* FIXED: Shifted left to stay completely clear of the Help icon */
+            left: 24px;
             z-index: 99999;
             border: none;
-            border-radius: 20%; /* Made circular to act as a clean app badge icon button */
+            border-radius: 20%;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -73,6 +72,78 @@ if (!document.getElementById('what-if-loader-styles')) {
             height: 64px;
             display: block;
             border-radius: 20%;
+        }
+
+        .zYqAyf {
+            display: inline-flex !important;
+            align-items: center !important;
+            gap: 4px !important;
+        }
+
+        .what-if-input {
+            border: 1px solid #dcdcdc !important; 
+            border-radius: 4px !important;
+            background-color: #ffffff !important;
+            padding: 2px 4px !important;
+            margin: 0 !important;
+            width: 36px !important; 
+            font-family: "Google Sans", Roboto, Arial, sans-serif !important;
+            font-size: 14px !important;
+            letter-spacing: .25px !important;
+            font-weight: 500 !important;
+            text-align: center !important;
+            color: #1a73e8 !important; 
+            outline: none !important;
+            -moz-appearance: textfield !important;
+            transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+        }
+        
+        .what-if-input::-webkit-outer-spin-button,
+        .what-if-input::-webkit-inner-spin-button {
+            -webkit-appearance: none !important;
+            margin: 0 !important;
+        }
+
+        .what-if-input.grade-changed {
+            border-color: #757575 !important; 
+            color: #5f6368 !important; 
+            font-style: italic !important;
+            background-color: #f1f3f4 !important; 
+        }
+
+        /* FAR RIGHT MINI RESET BUTTON */
+        .what-if-reset-btn {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            width: 16px !important;
+            height: 16px !important;
+            background: none !important;
+            border: none !important;
+            color: #db4437 !important; 
+            font-size: 16px !important;
+            line-height: 1 !important;
+            cursor: pointer !important;
+            padding: 0 !important;
+            margin: 0 0 0 4px !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+            transition: opacity 0.15s ease, transform 0.15s ease !important;
+            font-family: Arial, sans-serif !important;
+            font-weight: bold !important;
+        }
+
+        .what-if-reset-btn:hover {
+            transform: scale(1.2) !important;
+        }
+
+        .zYqAyf:has(.what-if-input.grade-changed) .what-if-reset-btn {
+            opacity: 0.7 !important;
+            pointer-events: auto !important;
+        }
+        
+        .zYqAyf:has(.what-if-input.grade-changed) .what-if-reset-btn:hover {
+            opacity: 1 !important;
         }
     `;
     document.head.appendChild(styleEl);
@@ -97,7 +168,6 @@ function injectDonationButton() {
     }
     
     donateLink.innerHTML = `<img src="${iconUrl}" class="what-if-donate-icon" alt="What-If Logo">`;
-    
     document.body.appendChild(donateLink);
 }
 
@@ -106,11 +176,11 @@ function getCourseId() {
     return match ? match[1] : 'unknown';
 }
 
-function generateAssignmentId(container, earned, possible, category) {
+function generateAssignmentId(container, earned, possible, category, index) {
     let assignmentName = "UnknownAssignment";
     const nameEl = container.parentElement?.querySelector('h1, h2, h3, .A666Wd, .SUZp4e');
-    if (nameEl) assignmentName = nameEl.textContent.trim();
-    return `${getCourseId()}_${assignmentName}_${category}_${earned}_${possible}`;
+    if (nameEl) assignmentName = nameEl.textContent.trim().replace(/[^a-zA-Z0-9]/g, '');
+    return `${getCourseId()}_idx${index}_${assignmentName}_${category}_${earned}_${possible}`;
 }
 
 function getScrollContainer() {
@@ -174,7 +244,6 @@ function triggerAutoScrollLoad() {
                     scrollTarget.scrollTop = originalScrollTop;
                 }
 
-                // Smoothly fade out and remove overlay layout
                 overlay.style.opacity = '0';
                 setTimeout(() => overlay.remove(), 300);
 
@@ -197,7 +266,7 @@ function triggerNativeClick(el) {
         const modalContainer = document.querySelector(SELECTORS.modalWrapper) || document.body.querySelector('[role="dialog"]');
         
         if (tableContainer && tableContainer.querySelectorAll('tr').length > 0) {
-            modalObserver.disconnect(); 
+            observerInstance.disconnect(); 
             setTimeout(() => {
                 scrapeCategoryWeights();
                 location.reload();
@@ -209,9 +278,9 @@ function triggerNativeClick(el) {
             setTimeout(() => {
                 const finalTableCheck = document.querySelector(SELECTORS.weightTable);
                 if (!finalTableCheck) {
-                    modalObserver.disconnect();
+                    observerInstance.disconnect();
                     window.isKnownUnweighted = true;
-                    dynamicCategoryWeights = null;
+                    window.gclassCourseWeightsRegistry[courseId] = null;
                     localStorage.setItem(storageKey, 'UNWEIGHTED');
                     location.reload();
                 }
@@ -237,6 +306,7 @@ function scrapeCategoryWeights() {
     const tableContainer = document.querySelector(SELECTORS.weightTable);
     if (!tableContainer) return; 
 
+    const courseId = getCourseId();
     const rows = tableContainer.querySelectorAll('tr');
     const scrapedWeights = {};
 
@@ -252,8 +322,8 @@ function scrapeCategoryWeights() {
     });
 
     if (Object.keys(scrapedWeights).length > 0) {
-        dynamicCategoryWeights = scrapedWeights;
-        localStorage.setItem('gclass_weights_' + getCourseId(), JSON.stringify(scrapedWeights));
+        window.gclassCourseWeightsRegistry[courseId] = scrapedWeights;
+        localStorage.setItem('gclass_weights_' + courseId, JSON.stringify(scrapedWeights));
         window.isKnownUnweighted = false;
     }
 }
@@ -266,6 +336,7 @@ function getOverallGradeElement() {
     return null;
 }
 
+// global target selector maps
 function getDetailsElement() {
     const potentialElements = document.querySelectorAll(SELECTORS.overallGrade);
     for (const el of potentialElements) {
@@ -277,6 +348,14 @@ function getDetailsElement() {
     return null;
 }
 
+function toggleFieldVisualFeedback(inputEl) {
+    if (inputEl.value !== inputEl.dataset.original) {
+        inputEl.classList.add('grade-changed');
+    } else {
+        inputEl.classList.remove('grade-changed');
+    }
+}
+
 function injectHypotheticalInputs() {
     injectDonationButton();
 
@@ -286,27 +365,26 @@ function injectHypotheticalInputs() {
 
     if (typeof observer !== 'undefined') observer.disconnect();
 
-    scrapeCategoryWeights();
-
     const courseId = getCourseId();
     const storageKey = 'gclass_weights_' + courseId;
 
     if (window.isKnownUnweighted === undefined) window.isKnownUnweighted = false;
 
-    if (!dynamicCategoryWeights && !window.isKnownUnweighted) {
+    if (!window.gclassCourseWeightsRegistry[courseId] && !window.isKnownUnweighted) {
         const saved = localStorage.getItem(storageKey);
         if (saved === 'UNWEIGHTED') {
             window.isKnownUnweighted = true;
         } else if (saved) {
             try {
-                dynamicCategoryWeights = JSON.parse(saved);
+                window.gclassCourseWeightsRegistry[courseId] = JSON.parse(saved);
             } catch(e) {}
         }
     }
 
     const detailsElement = getDetailsElement();
+    const activeWeights = window.gclassCourseWeightsRegistry[courseId];
 
-    if (detailsElement && !dynamicCategoryWeights && !window.isKnownUnweighted && !window.hasAutoClicked) {
+    if (detailsElement && !activeWeights && !window.isKnownUnweighted && !window.hasAutoClicked) {
         window.hasAutoClicked = true; 
         setTimeout(() => triggerNativeClick(detailsElement), 500);
     }
@@ -330,7 +408,11 @@ function injectHypotheticalInputs() {
 
     const hasCategories = document.querySelector(SELECTORS.categoryLabel) !== null;
 
-    scoreContainers.forEach(container => {
+    scoreContainers.forEach((container, containerIndex) => {
+        if (container.getBoundingClientRect().width === 0) {
+            return;
+        }
+
         const earnedSpan = container.querySelector(SELECTORS.earnedScore);
         if (!earnedSpan) return;
 
@@ -350,44 +432,75 @@ function injectHypotheticalInputs() {
             searchNode = searchNode.parentElement;
         }
 
-        const assignmentId = generateAssignmentId(container, earned, possible, categoryText);
+        const assignmentId = generateAssignmentId(container, earned, possible, categoryText, containerIndex);
         
         if (!assignmentId.startsWith(courseId + '_')) {
             return;
         }
 
         let input = container.querySelector('.what-if-input');
-        const isLocked = hasCategories && !dynamicCategoryWeights && !window.isKnownUnweighted;
+        let resetBtn = container.querySelector('.what-if-reset-btn');
+        const isLocked = hasCategories && !activeWeights && !window.isKnownUnweighted;
 
-        if (input) {
-            if (window.whatIfState[assignmentId] !== undefined && input.value !== window.whatIfState[assignmentId]) {
-                input.value = window.whatIfState[assignmentId];
+        if (input && resetBtn) {
+            if (input.dataset.id !== assignmentId) {
+                input.remove();
+                resetBtn.remove();
+                earnedSpan.style.display = '';
+                input = null;
+                resetBtn = null;
+            } else {
+                if (window.whatIfState[assignmentId] !== undefined && input.value !== window.whatIfState[assignmentId]) {
+                    input.value = window.whatIfState[assignmentId];
+                }
+                input.disabled = isLocked;
+                toggleFieldVisualFeedback(input);
+                return;
             }
-            input.disabled = isLocked;
-            return;
         }
 
-        input = document.createElement('input');
-        input.type = 'number';
-        input.className = 'what-if-input';
-        input.dataset.possible = possible; 
-        input.dataset.original = earned; 
-        input.dataset.category = categoryText; 
-        input.dataset.id = assignmentId;
-        input.disabled = isLocked;
+        if (!input) {
+            input = document.createElement('input');
+            input.type = 'number';
+            input.className = 'what-if-input';
+            input.dataset.possible = possible; 
+            input.dataset.original = earned; 
+            input.dataset.category = categoryText; 
+            input.dataset.id = assignmentId;
+            input.disabled = isLocked;
 
-        input.value = window.whatIfState[assignmentId] !== undefined ? window.whatIfState[assignmentId] : earned;
+            input.value = window.whatIfState[assignmentId] !== undefined ? window.whatIfState[assignmentId] : earned;
+            toggleFieldVisualFeedback(input);
 
-        input.addEventListener('click', (e) => e.stopPropagation());
-        input.addEventListener('mousedown', (e) => e.stopPropagation());
-        input.addEventListener('input', () => {
-            window.whatIfState[assignmentId] = input.value;
-            const topGrade = getOverallGradeElement();
-            if (topGrade) recalculateOverall(topGrade);
-        });
+            resetBtn = document.createElement('button');
+            resetBtn.className = 'what-if-reset-btn';
+            resetBtn.innerHTML = '&times;';
+            resetBtn.title = 'Reset grade';
 
-        earnedSpan.style.display = 'none';
-        earnedSpan.parentNode.insertBefore(input, earnedSpan);
+            input.addEventListener('click', (e) => e.stopPropagation());
+            input.addEventListener('mousedown', (e) => e.stopPropagation());
+            input.addEventListener('input', () => {
+                window.whatIfState[assignmentId] = input.value;
+                toggleFieldVisualFeedback(input);
+                const topGrade = getOverallGradeElement();
+                if (topGrade) recalculateOverall(topGrade);
+            });
+
+            resetBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                delete window.whatIfState[assignmentId]; 
+                input.value = input.dataset.original; 
+                toggleFieldVisualFeedback(input);
+                const topGrade = getOverallGradeElement();
+                if (topGrade) recalculateOverall(topGrade);
+            });
+            resetBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+
+            earnedSpan.style.display = 'none';
+            earnedSpan.parentNode.insertBefore(input, earnedSpan);
+            container.appendChild(resetBtn); // snaps the cross button to the absolute right side end frame edge
+        }
     });
 
     if (overallGradeElement) recalculateOverall(overallGradeElement);
@@ -402,8 +515,13 @@ function recalculateOverall(overallGradeElement) {
 
     const activeInputs = document.querySelectorAll('.what-if-input');
     const currentCourseId = getCourseId();
+    const activeWeights = window.gclassCourseWeightsRegistry[currentCourseId];
     
     activeInputs.forEach(input => {
+        if (input.getBoundingClientRect().width === 0) {
+            return;
+        }
+
         const assignmentId = input.dataset.id;
         
         if (!assignmentId.startsWith(currentCourseId + '_')) {
@@ -422,24 +540,26 @@ function recalculateOverall(overallGradeElement) {
         standardTotalEarned += currentValue;
         standardTotalPossible += possibleValue;
 
-        if (!categoryTotals[cat]) categoryTotals[cat] = { earned: 0, possible: 0 };
-        categoryTotals[cat].earned += currentValue;
-        categoryTotals[cat].possible += possibleValue;
+        const isolatedKey = `${currentCourseId}_${cat}`;
+        if (!categoryTotals[isolatedKey]) categoryTotals[isolatedKey] = { earned: 0, possible: 0 };
+        categoryTotals[isolatedKey].earned += currentValue;
+        categoryTotals[isolatedKey].possible += possibleValue;
     });
 
     if (standardTotalPossible > 0 && overallGradeElement) {
         if (isChanged) {
             let finalPercentage = 0;
-            if (dynamicCategoryWeights) {
-                let weightedSum = 0;
-                let totalWeight = 0;
-                for (let cat in dynamicCategoryWeights) {
-                    if (categoryTotals[cat] && categoryTotals[cat].possible > 0) {
-                        weightedSum += (categoryTotals[cat].earned / categoryTotals[cat].possible) * dynamicCategoryWeights[cat];
-                        totalWeight += dynamicCategoryWeights[cat];
+            if (activeWeights) {
+                let strokeWeightedSum = 0;
+                let totalWeightDiscovered = 0;
+                for (let cat in activeWeights) {
+                    const isolatedLookupKey = `${currentCourseId}_${cat}`;
+                    if (categoryTotals[isolatedLookupKey] && categoryTotals[isolatedLookupKey].possible > 0) {
+                        strokeWeightedSum += (categoryTotals[isolatedLookupKey].earned / categoryTotals[isolatedLookupKey].possible) * activeWeights[cat];
+                        totalWeightDiscovered += activeWeights[cat];
                     }
                 }
-                finalPercentage = totalWeight > 0 ? (weightedSum / totalWeight) * 100 : 0;
+                finalPercentage = totalWeightDiscovered > 0 ? (strokeWeightedSum / totalWeightDiscovered) * 100 : 0;
             } else {
                 finalPercentage = (standardTotalEarned / standardTotalPossible) * 100;
             }
@@ -469,10 +589,10 @@ setInterval(() => {
     if (location.href !== lastURL) {
         lastURL = location.href;
         window.hasAutoClicked = false; 
-        dynamicCategoryWeights = null; 
         window.isKnownUnweighted = false;
         
         document.querySelectorAll('.what-if-input').forEach(input => input.remove());
+        document.querySelectorAll('.what-if-reset-btn').forEach(btn => btn.remove());
         document.querySelectorAll(SELECTORS.earnedScore).forEach(span => span.style.display = '');
         
         injectHypotheticalInputs();
