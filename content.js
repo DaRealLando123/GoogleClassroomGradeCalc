@@ -50,21 +50,17 @@ if (!document.getElementById('what-if-loader-styles')) {
             bottom: 24px;
             left: 24px;
             z-index: 99999;
-            border: none;
-            border-radius: 20%;
             display: flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 3px 6px rgba(0,0,0,0.16), 0 3px 6px rgba(0,0,0,0.23);
-            transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease-in-out, background-color 0.2s;
+            transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease-in-out;
             cursor: pointer;
         }
         .what-if-donate-btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 10px 20px rgba(0,0,0,0.19), 0 6px 6px rgba(0,0,0,0.23);
+            transform: scale(1.05);
         }
         .what-if-donate-btn:active {
-            transform: translateY(-1px);
+            transform: scale(0.95);
             box-shadow: 0 4px 5px rgba(0,0,0,0.14);
         }
         .what-if-donate-icon {
@@ -254,7 +250,7 @@ function triggerAutoScrollLoad() {
         }
 
         lastRowCount = currentRowCount;
-    }, 100); 
+    }, 200); 
 }
 
 function triggerNativeClick(el) {
