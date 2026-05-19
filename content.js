@@ -7,17 +7,15 @@ const SELECTORS = {
     modalWrapper: '.g3V99b'
 };
 
-// Pre-compiled regex for faster execution in loops
 const POSSIBLE_SCORE_REGEX = /\/\s*(\d+)/;
 
-// Global state registries 
+ 
 window.gclassCourseWeightsRegistry = window.gclassCourseWeightsRegistry || {};
 window.scrolledCoursesRegistry = window.scrolledCoursesRegistry || {}; 
 window.whatIfState = window.whatIfState || {}; 
 window.hasAutoClicked = false; 
 window.lastCalculatedGradeText = "";
 
-// Memory caches for DOM nodes to prevent layout thrashing and O(N^2) lookups
 let cachedScrollContainer = null;
 let cachedOverallGradeEl = null;
 const categoryNodeCache = new WeakMap(); 
@@ -341,7 +339,6 @@ function injectHypotheticalInputs() {
     const isLocked = hasCategories && !activeWeights && !window.isKnownUnweighted;
 
     scoreContainers.forEach((container, containerIndex) => {
-        // Fast visibility check to avoid rendering hidden DOM elements
         if (container.offsetParent === null) return;
 
         const earnedSpan = container.querySelector(SELECTORS.earnedScore);
@@ -352,7 +349,6 @@ function injectHypotheticalInputs() {
         const match = fullText.match(POSSIBLE_SCORE_REGEX);
         const possible = match ? match[1] : 0; 
 
-        // Optimized Category Traversal with WeakMap caching
         let categoryText = "Uncategorized";
         let searchNode = container;
         while (searchNode && searchNode !== document.body) {
@@ -406,7 +402,6 @@ function injectHypotheticalInputs() {
         resetBtn.innerHTML = '&times;';
         resetBtn.title = 'Reset grade';
 
-        // Event delegation logic directly bound
         const stopProp = (e) => e.stopPropagation();
         input.addEventListener('click', stopProp);
         input.addEventListener('mousedown', stopProp);
@@ -490,7 +485,6 @@ function recalculateOverall(overallGradeElement, currentCourseId, activeWeights)
             textResult = overallGradeElement.dataset.originalText;
         }
 
-        // Paint Optimization: Only write to the DOM if the text actually changed
         if (overallGradeElement.innerText !== textResult) {
             overallGradeElement.innerText = textResult;
             overallGradeElement.classList.toggle('hypothetical-header-text', isHypothetical);
