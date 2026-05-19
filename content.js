@@ -12,6 +12,7 @@ window.gclassCourseWeightsRegistry = window.gclassCourseWeightsRegistry || {};
 window.scrolledCoursesRegistry = window.scrolledCoursesRegistry || {}; 
 window.whatIfState = window.whatIfState || {}; 
 window.hasAutoClicked = false; 
+window.lastCalculatedGradeText = "";
 
 if (!document.getElementById('what-if-loader-styles')) {
     const styleEl = document.createElement('style');
@@ -47,8 +48,8 @@ if (!document.getElementById('what-if-loader-styles')) {
         }
         .what-if-donate-btn {
             position: fixed;
-            bottom: 24px;
-            left: 24px;
+            bottom: 12px;
+            left: 12px;
             z-index: 99999;
             display: flex;
             align-items: center;
@@ -102,12 +103,18 @@ if (!document.getElementById('what-if-loader-styles')) {
 
         .what-if-input.grade-changed {
             border-color: #757575 !important; 
-            color: #5f6368 !important; 
-            font-style: italic !important;
+            color: #303b6e !important; 
             background-color: #f1f3f4 !important; 
         }
 
-        /* FAR RIGHT MINI RESET BUTTON */
+        .what-if-input.perfect-score {
+            color: #2c7444 !important;
+        }
+
+        .what-if-input.zero-score {
+            color: #9c3d35 !important;
+        }
+
         .what-if-reset-btn {
             display: inline-flex !important;
             align-items: center !important;
@@ -141,6 +148,42 @@ if (!document.getElementById('what-if-loader-styles')) {
         .zYqAyf:has(.what-if-input.grade-changed) .what-if-reset-btn:hover {
             opacity: 1 !important;
         }
+
+        .what-if-floating-banner {
+            position: fixed;
+            top: -60px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #ffffff;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            border: 1px solid #e0e0e0;
+            border-radius: 0 0 12px 12px;
+            padding: 10px 24px;
+            font-family: "Google Sans", Roboto, Arial, sans-serif;
+            font-size: 16px;
+            font-weight: 500;
+            color: #3c4043;
+            z-index: 9999;
+            transition: top 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            pointer-events: none;
+        }
+        .what-if-floating-banner.visible {
+            top: 0;
+            pointer-events: auto;
+        }
+        .what-if-floating-banner .banner-label {
+            color: #5f6368;
+        }
+        .what-if-floating-banner .banner-value {
+            color: #1a73e8;
+            font-weight: 700;
+        }
+        .what-if-floating-banner.hypothetical .banner-value {
+            color: #303b6e;
+        }
     `;
     document.head.appendChild(styleEl);
 }
@@ -165,6 +208,39 @@ function injectDonationButton() {
     
     donateLink.innerHTML = `<img src="${iconUrl}" class="what-if-donate-icon" alt="What-If Logo">`;
     document.body.appendChild(donateLink);
+}
+
+function injectFloatingBanner() {
+    if (document.getElementById('what-if-sticky-grade-banner')) return;
+
+    const banner = document.createElement('div');
+    banner.id = 'what-if-sticky-grade-banner';
+    banner.className = 'what-if-floating-banner';
+    banner.innerHTML = `<span class="banner-label">Overall Grade:</span><span class="banner-value" id="what-if-banner-grade-text">--%</span>`;
+    document.body.appendChild(banner);
+
+
+    const scrollTarget = getScrollContainer();
+    const handleScroll = () => {
+        const scrollTop = scrollTarget === window ? window.scrollY : scrollTarget.scrollTop;
+
+        if (scrollTop > 150 && location.href.includes('/sp/')) {
+            banner.classList.add('visible');
+            const innerVal = document.getElementById('what-if-banner-grade-text');
+            if (innerVal) innerVal.textContent = window.lastCalculatedGradeText;
+            
+            if (window.lastCalculatedGradeText.includes('Hypothetical')) {
+                banner.classList.add('hypothetical');
+            } else {
+                banner.classList.remove('hypothetical');
+            }
+        } else {
+            banner.classList.remove('visible');
+        }
+    };
+
+    scrollTarget.removeEventListener('scroll', handleScroll);
+    scrollTarget.addEventListener('scroll', handleScroll, { passive: true });
 }
 
 function getCourseId() {
@@ -332,7 +408,6 @@ function getOverallGradeElement() {
     return null;
 }
 
-// global target selector maps
 function getDetailsElement() {
     const potentialElements = document.querySelectorAll(SELECTORS.overallGrade);
     for (const el of potentialElements) {
@@ -350,10 +425,12 @@ function toggleFieldVisualFeedback(inputEl) {
     } else {
         inputEl.classList.remove('grade-changed');
     }
+    evaluatePerfectScore(inputEl);
 }
 
 function injectHypotheticalInputs() {
     injectDonationButton();
+    injectFloatingBanner();
 
     if (!location.href.includes('/sp/')) {
         return;
@@ -495,13 +572,26 @@ function injectHypotheticalInputs() {
 
             earnedSpan.style.display = 'none';
             earnedSpan.parentNode.insertBefore(input, earnedSpan);
-            container.appendChild(resetBtn); // snaps the cross button to the absolute right side end frame edge
+            container.appendChild(resetBtn); 
         }
     });
 
     if (overallGradeElement) recalculateOverall(overallGradeElement);
     if (typeof observer !== 'undefined') startObserver();
 }
+
+function evaluatePerfectScore(inputEl) {
+       const val = parseFloat(inputEl.value) || 0;
+       const max = parseFloat(inputEl.dataset.possible) || 0;
+
+       inputEl.classList.remove('perfect-score', 'zero-score');
+
+       if (val === 0) {
+           inputEl.classList.add('zero-score');
+       } else if (max > 0 && val >= max) {
+           inputEl.classList.add('perfect-score');
+       }
+   }
 
 function recalculateOverall(overallGradeElement) {
     let isChanged = false;
@@ -543,6 +633,7 @@ function recalculateOverall(overallGradeElement) {
     });
 
     if (standardTotalPossible > 0 && overallGradeElement) {
+        let textResult = "";
         if (isChanged) {
             let finalPercentage = 0;
             if (activeWeights) {
@@ -559,9 +650,25 @@ function recalculateOverall(overallGradeElement) {
             } else {
                 finalPercentage = (standardTotalEarned / standardTotalPossible) * 100;
             }
-            overallGradeElement.innerText = `${finalPercentage.toFixed(2)}% (Hypothetical)`;
+            textResult = `${finalPercentage.toFixed(2)}% (Hypothetical)`;
+            overallGradeElement.style.color = '#303b6e';
         } else if (overallGradeElement.dataset.originalText) {
-            overallGradeElement.innerText = overallGradeElement.dataset.originalText;
+            textResult = overallGradeElement.dataset.originalText;
+            overallGradeElement.style.color = '';
+        }
+
+        overallGradeElement.innerText = textResult;
+        window.lastCalculatedGradeText = textResult;
+
+        const bannerInner = document.getElementById('what-if-banner-grade-text');
+        const bannerElement = document.getElementById('what-if-sticky-grade-banner');
+        if (bannerInner && bannerElement) {
+            bannerInner.textContent = textResult;
+            if (textResult.includes('Hypothetical')) {
+                bannerElement.classList.add('hypothetical');
+            } else {
+                bannerElement.classList.remove('hypothetical');
+            }
         }
     }
 }
@@ -586,9 +693,11 @@ setInterval(() => {
         lastURL = location.href;
         window.hasAutoClicked = false; 
         window.isKnownUnweighted = false;
+        window.lastCalculatedGradeText = "";
         
         document.querySelectorAll('.what-if-input').forEach(input => input.remove());
         document.querySelectorAll('.what-if-reset-btn').forEach(btn => btn.remove());
+        document.querySelectorAll('#what-if-sticky-grade-banner').forEach(b => b.remove());
         document.querySelectorAll(SELECTORS.earnedScore).forEach(span => span.style.display = '');
         
         injectHypotheticalInputs();
