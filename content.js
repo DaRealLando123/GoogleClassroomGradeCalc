@@ -1,3 +1,5 @@
+// ©️ 2026 Landon Schroering
+
 const SELECTORS = {
     scoreContainer: '.zYqAyf', 
     earnedScore: '.wyQ9e',     
