@@ -1,7 +1,7 @@
 // ©️ 2026 Landon Schroering
 
 const SELECTORS = {
-    scoreContainer: '.zYqAyf', 
+    scoreContainer: '.K9DItd', 
     earnedScore: '.wyQ9e',     
     overallGrade: '[jsname="V67aGc"]',
     categoryLabel: '[jscontroller="lxw7Rd"]',
@@ -432,6 +432,8 @@ function injectHypotheticalInputs() {
 }
 
 function recalculateOverall(overallGradeElement, currentCourseId, activeWeights) {
+    console.log("Recalculating overall grade.")
+    
     let isChanged = false;
     let categoryTotals = {};
     let standardTotalEarned = 0;
