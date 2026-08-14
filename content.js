@@ -200,7 +200,7 @@ function triggerAutoScrollLoad() {
             stableChecks = 0; 
         }
         lastRowCount = currentRowCount;
-    }, 300); 
+    }, 400); 
 }
 
 function triggerNativeClick(el) {
