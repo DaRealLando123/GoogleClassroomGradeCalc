@@ -6,7 +6,8 @@ const SELECTORS = {
     overallGrade: '[jsname="V67aGc"]',
     categoryLabel: '[jscontroller="lxw7Rd"]',
     weightTable: '[jscontroller="Sol5if"]',
-    modalWrapper: '.g3V99b'
+    modalWrapper: '.g3V99b',
+    filterContainer: '.ZnooZb'
 };
 
 const POSSIBLE_SCORE_REGEX = /\/\s*(\d+)/;
@@ -82,6 +83,36 @@ if (!document.getElementById('what-if-loader-styles')) {
         .what-if-floating-banner .banner-value { color: #1a73e8; font-weight: 700; }
         .what-if-floating-banner.hypothetical .banner-value { color: #303b6e; }
         .hypothetical-header-text { color: #303b6e !important; }
+        .what-if-impact-bar-container {
+            display: flex;
+            align-items: center;
+            flex: 1;
+            margin-left: 16px;
+            height: 48px;
+        }
+        .what-if-impact-bar {
+            display: flex;
+            width: 100%;
+            height: 16px;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #f1f3f4;
+            border: 1px solid #dadce0;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.06);
+        }
+        .what-if-bar-segment {
+            height: 100%;
+            box-sizing: border-box;
+            border-right: 1px solid rgba(255, 255, 255, 0.7);
+            transition: opacity 0.15s ease, filter 0.15s ease;
+            cursor: pointer;
+        }
+        .what-if-bar-segment:last-child {
+            border-right: none;
+        }
+        .what-if-bar-segment:hover {
+            filter: brightness(0.85);
+        }
     `;
     document.head.appendChild(styleEl);
 }
@@ -503,6 +534,12 @@ function recalculateOverall(overallGradeElement, currentCourseId, activeWeights)
             bannerElement.classList.toggle('hypothetical', isHypothetical);
         }
     }
+
+    if (standardTotalPossible > 0) {
+        updateImpactBreakdown(currentCourseId, activeWeights, categoryTotals, standardTotalPossible);
+        
+        let textResult = "";
+    }
 }
 
 let observerTimer;
@@ -535,5 +572,91 @@ setInterval(() => {
         injectHypotheticalInputs();
     }
 }, 1000);
+
+function updateImpactBreakdown(currentCourseId, activeWeights, categoryTotals, standardTotalPossible) {
+    const assignments = [];
+
+    document.querySelectorAll('.what-if-input').forEach((input) => {
+        if (input.offsetParent === null) return;
+        
+        const assignmentId = input.dataset.id;
+        if (!assignmentId.startsWith(currentCourseId + '_')) return;
+
+        const possible = parseFloat(input.dataset.possible) || 0;
+        if (possible <= 0) return;
+
+        const cat = input.dataset.category;
+        const container = input.closest(SELECTORS.scoreContainer);
+        const nameEl = container?.parentElement?.querySelector('h1, h2, h3, .A666Wd, .SUZp4e');
+        const name = nameEl ? nameEl.textContent.trim() : 'Assignment';
+
+        // Find the target assignment row and any embedded link element
+        const rowEl = container.closest('[role="listitem"]') || container.parentElement;
+        const linkEl = rowEl?.querySelector('a[href*="/a/"]');
+
+        let weightPercent = 0;
+        if (activeWeights && activeWeights[cat]) {
+            const isolatedLookupKey = `${currentCourseId}_${cat}`;
+            const catPossible = categoryTotals[isolatedLookupKey]?.possible || 0;
+            if (catPossible > 0) {
+                weightPercent = (possible / catPossible) * (activeWeights[cat] * 100);
+            }
+        } else if (standardTotalPossible > 0) {
+            weightPercent = (possible / standardTotalPossible) * 100;
+        }
+
+        if (weightPercent > 0) {
+            assignments.push({ name, possible, weightPercent, rowEl, linkEl });
+        }
+    });
+
+    if (assignments.length === 0) return;
+
+    const filterContainer = document.querySelector(SELECTORS.filterContainer);
+    if (!filterContainer) return;
+
+    let barContainer = document.getElementById('what-if-impact-breakdown');
+    if (!barContainer) {
+        barContainer = document.createElement('div');
+        barContainer.id = 'what-if-impact-breakdown';
+        barContainer.className = 'what-if-impact-bar-container';
+        filterContainer.appendChild(barContainer);
+    }
+
+    const palette = [
+        '#1a73e8', '#34a853', '#f9ab00', '#ea4335', '#a142f4', 
+        '#24c1e0', '#f28b82', '#fdd663', '#81c995', '#8ab4f8'
+    ];
+
+    barContainer.innerHTML = '';
+    const bar = document.createElement('div');
+    bar.className = 'what-if-impact-bar';
+
+    assignments.forEach((item, index) => {
+        const segment = document.createElement('div');
+        segment.className = 'what-if-bar-segment';
+        segment.style.width = `${item.weightPercent}%`;
+        segment.style.backgroundColor = palette[index % palette.length];
+        segment.title = `${item.name}: ${item.weightPercent.toFixed(1)}% of grade (${item.possible} pts) — Click to open`;
+
+        segment.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (item.rowEl) {
+                item.rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                
+                // Open the assignment link if present; otherwise click the row element to expand
+                if (item.linkEl) {
+                    item.linkEl.click();
+                } else if (typeof item.rowEl.click === 'function') {
+                    item.rowEl.click();
+                }
+            }
+        });
+
+        bar.appendChild(segment);
+    });
+
+    barContainer.appendChild(bar);
+}
 
 injectHypotheticalInputs();
