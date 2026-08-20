@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Google Classroom Grade Calculator | GCGC",
-  "version": "1.1.4",
+  "version": "1.2",
   "description": "Change assignment scores to see how they affect your overall grade.",
   "permissions": [],
   "content_scripts": [
@@ -9,6 +9,7 @@
       "matches": [
         "*://*.classroom.google.com/*"
       ],
+      "css": ["styles.css"],
       "js": ["content.js"]
     }
   ],

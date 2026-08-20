@@ -7,7 +7,9 @@ const SELECTORS = {
     categoryLabel: '[jscontroller="lxw7Rd"]',
     weightTable: '[jscontroller="Sol5if"]',
     modalWrapper: '.g3V99b',
-    filterContainer: '.ZnooZb'
+    filterContainer: '.ZnooZb',
+    assignmentRow: '[role="listitem"], .sX221e, .j4S49e',
+    assignmentTitle: '[jsname="rQC7Ie"][aria-label]'
 };
 
 const POSSIBLE_SCORE_REGEX = /\/\s*(\d+)/;
@@ -21,101 +23,7 @@ window.lastCalculatedGradeText = "";
 
 let cachedScrollContainer = null;
 let cachedOverallGradeEl = null;
-const categoryNodeCache = new WeakMap(); 
-
-if (!document.getElementById('what-if-loader-styles')) {
-    const styleEl = document.createElement('style');
-    styleEl.id = 'what-if-loader-styles';
-    styleEl.textContent = `
-        @keyframes whatIfColorThrob {
-            0% { transform: scale(0.95); background-color: #1a73e8; box-shadow: 0 4px 15px rgba(26, 115, 232, 0.4); }
-            25% { background-color: #ea4335; box-shadow: 0 4px 15px rgba(234, 67, 53, 0.4); }
-            50% { transform: scale(1.05); background-color: #f9ab00; box-shadow: 0 4px 15px rgba(249, 171, 0, 0.4); }
-            75% { background-color: #34a853; box-shadow: 0 4px 15px rgba(52, 168, 83, 0.4); }
-            100% { transform: scale(0.95); background-color: #1a73e8; box-shadow: 0 4px 15px rgba(26, 115, 232, 0.4); }
-        }
-        .what-if-overlay {
-            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(4px);
-            z-index: 100000; display: flex; justify-content: center; align-items: center;
-            transition: opacity 0.3s ease-in-out; pointer-events: all;
-        }
-        .what-if-spinner { width: 60px; height: 60px; border-radius: 50%; animation: whatIfColorThrob 3s infinite ease-in-out; }
-        .what-if-donate-btn {
-            position: fixed; bottom: 12px; left: 12px; z-index: 99999;
-            display: flex; align-items: center; justify-content: center;
-            transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease-in-out; cursor: pointer;
-        }
-        .what-if-donate-btn:hover { transform: scale(1.05); }
-        .what-if-donate-btn:active { transform: scale(0.95); box-shadow: 0 4px 5px rgba(0,0,0,0.14); }
-        .what-if-donate-icon { width: 64px; height: 64px; display: block; border-radius: 20%; }
-        .zYqAyf { display: inline-flex !important; align-items: center !important; gap: 4px !important; }
-        .what-if-input {
-            border: 1px solid #dcdcdc !important; border-radius: 4px !important;
-            background-color: #ffffff !important; padding: 2px 4px !important; margin: 0 !important;
-            width: 36px !important; font-family: "Google Sans", Roboto, Arial, sans-serif !important;
-            font-size: 14px !important; letter-spacing: .25px !important; font-weight: 500 !important;
-            text-align: center !important; color: #1a73e8 !important; outline: none !important;
-            -moz-appearance: textfield !important; transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
-        }
-        .what-if-input::-webkit-outer-spin-button, .what-if-input::-webkit-inner-spin-button { -webkit-appearance: none !important; margin: 0 !important; }
-        .what-if-input.grade-changed { border-color: #757575 !important; color: #303b6e !important; background-color: #f1f3f4 !important; }
-        .what-if-reset-btn {
-            display: inline-flex !important; align-items: center !important; justify-content: center !important;
-            width: 16px !important; height: 16px !important; background: none !important; border: none !important;
-            color: #db4437 !important; font-size: 16px !important; line-height: 1 !important; cursor: pointer !important;
-            padding: 0 !important; margin: 0 0 0 4px !important; opacity: 0 !important; pointer-events: none !important;
-            transition: opacity 0.15s ease, transform 0.15s ease !important; font-family: Arial, sans-serif !important; font-weight: bold !important;
-        }
-        .what-if-reset-btn:hover { transform: scale(1.2) !important; }
-        .zYqAyf:has(.what-if-input.grade-changed) .what-if-reset-btn { opacity: 0.7 !important; pointer-events: auto !important; }
-        .zYqAyf:has(.what-if-input.grade-changed) .what-if-reset-btn:hover { opacity: 1 !important; }
-        .what-if-floating-banner {
-            position: fixed; top: -60px; left: 50%; transform: translateX(-50%);
-            background-color: #ffffff; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-            border: 1px solid #e0e0e0; border-radius: 0 0 12px 12px; padding: 10px 24px;
-            font-family: "Google Sans", Roboto, Arial, sans-serif; font-size: 16px; font-weight: 500;
-            color: #3c4043; z-index: 9999; transition: top 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            display: flex; align-items: center; gap: 8px; pointer-events: none;
-        }
-        .what-if-floating-banner.visible { top: 0; pointer-events: auto; }
-        .what-if-floating-banner .banner-label { color: #5f6368; }
-        .what-if-floating-banner .banner-value { color: #1a73e8; font-weight: 700; }
-        .what-if-floating-banner.hypothetical .banner-value { color: #303b6e; }
-        .hypothetical-header-text { color: #303b6e !important; }
-        .what-if-impact-bar-container {
-            display: flex;
-            align-items: center;
-            flex: 1;
-            margin-left: 16px;
-            height: 48px;
-        }
-        .what-if-impact-bar {
-            display: flex;
-            width: 100%;
-            height: 16px;
-            border-radius: 8px;
-            overflow: hidden;
-            background: #f1f3f4;
-            border: 1px solid #dadce0;
-            box-shadow: inset 0 1px 2px rgba(0,0,0,0.06);
-        }
-        .what-if-bar-segment {
-            height: 100%;
-            box-sizing: border-box;
-            border-right: 1px solid rgba(255, 255, 255, 0.7);
-            transition: opacity 0.15s ease, filter 0.15s ease;
-            cursor: pointer;
-        }
-        .what-if-bar-segment:last-child {
-            border-right: none;
-        }
-        .what-if-bar-segment:hover {
-            filter: brightness(0.85);
-        }
-    `;
-    document.head.appendChild(styleEl);
-}
+const categoryNodeCache = new WeakMap();
 
 function getCourseId() {
     const match = location.href.match(/\/c\/([a-zA-Z0-9_]+)/);
@@ -124,18 +32,38 @@ function getCourseId() {
 
 function injectDonationButton() {
     if (document.getElementById('what-if-donate-anchor')) return;
-    const donateLink = document.createElement('a');
-    donateLink.id = 'what-if-donate-anchor';
-    donateLink.className = 'what-if-donate-btn';
-    donateLink.href = 'https://ko-fi.com/dareallando123'; 
-    donateLink.target = '_blank';
-    donateLink.rel = 'noopener noreferrer';
-    
+
+    const donateBtn = document.createElement('button');
+    donateBtn.id = 'what-if-donate-anchor';
+    donateBtn.className = 'what-if-donate-btn';
+    donateBtn.type = 'button';
+
     let iconUrl = 'icon128.png';
     try { iconUrl = chrome.runtime.getURL('icon128.png'); } catch (e) {}
-    
-    donateLink.innerHTML = `<img src="${iconUrl}" class="what-if-donate-icon" alt="What-If Logo">`;
-    document.body.appendChild(donateLink);
+
+    donateBtn.innerHTML = `<img src="${iconUrl}" class="what-if-donate-icon" alt="What-If Logo">`;
+
+    donateBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        showWhatIfModal('Google Classroom Grade Calculator | GCGC', `
+            <div class="what-if-credits-container">
+                <img src="${iconUrl}" class="what-if-modal-logo" alt="What-If Logo">
+                <p>Landon Schroering (&copy; 2026)</p>
+                <p class="what-if-modal-desc">Calculate your overall class grade with hypothetical assignment, quiz, and exam scores directly in Classroom.</p>
+                
+                <div class="what-if-modal-links">
+                    <a href="https://ko-fi.com/dareallando123" target="_blank" rel="noopener noreferrer" class="what-if-modal-btn donate-btn">
+                        ☕ Support on Ko-fi
+                    </a>
+                    <a href="https://lando.run/GCGC" target="_blank" rel="noopener noreferrer" class="what-if-modal-btn site-btn">
+                        🌐 Visit Website
+                    </a>
+                </div>
+            </div>
+        `);
+    });
+
+    document.body.appendChild(donateBtn);
 }
 
 function injectFloatingBanner() {
@@ -357,7 +285,7 @@ function injectHypotheticalInputs() {
     triggerAutoScrollLoad();
 
     const scoreContainers = document.querySelectorAll(SELECTORS.scoreContainer);
-    const topGrade = getOverallGradeElement(); // Cached outside the loop!
+    const topGrade = getOverallGradeElement();
     
     if (scoreContainers.length === 0) {
         if (typeof observer !== 'undefined') startObserver();
@@ -392,7 +320,7 @@ function injectHypotheticalInputs() {
             const catEl = searchNode.querySelector(SELECTORS.categoryLabel);
             if (catEl) {
                 categoryText = catEl.textContent.replace(/^[\s•]+/, '').trim();
-                categoryNodeCache.set(searchNode, categoryText); // Cache it for future assignments in this block
+                categoryNodeCache.set(searchNode, categoryText);
                 break;
             }
             searchNode = searchNode.parentElement;
@@ -442,6 +370,7 @@ function injectHypotheticalInputs() {
             window.whatIfState[assignmentId] = input.value;
             toggleFieldVisualFeedback(input);
             if (topGrade) recalculateOverall(topGrade, courseId, activeWeights);
+            else refreshBreakdownOnly(courseId, activeWeights);
         });
 
         resetBtn.addEventListener('click', (e) => {
@@ -450,6 +379,7 @@ function injectHypotheticalInputs() {
             input.value = input.dataset.original; 
             toggleFieldVisualFeedback(input);
             if (topGrade) recalculateOverall(topGrade, courseId, activeWeights);
+            else refreshBreakdownOnly(courseId, activeWeights);
         });
         resetBtn.addEventListener('mousedown', stopProp);
 
@@ -458,8 +388,34 @@ function injectHypotheticalInputs() {
         container.appendChild(resetBtn); 
     });
 
-    if (topGrade) recalculateOverall(topGrade, courseId, activeWeights);
+    if (topGrade) {
+        recalculateOverall(topGrade, courseId, activeWeights);
+    } else {
+        refreshBreakdownOnly(courseId, activeWeights);
+    }
+
     if (typeof observer !== 'undefined') startObserver();
+}
+
+function refreshBreakdownOnly(courseId, activeWeights) {
+    let categoryTotals = {};
+    let standardTotalPossible = 0;
+
+    document.querySelectorAll('.what-if-input').forEach(input => {
+        if (input.offsetParent === null) return;
+        const assignmentId = input.dataset.id;
+        if (!assignmentId.startsWith(courseId + '_')) return;
+
+        const possibleValue = parseFloat(input.dataset.possible) || 0;
+        const cat = input.dataset.category;
+        standardTotalPossible += possibleValue;
+
+        const isolatedKey = `${courseId}_${cat}`;
+        if (!categoryTotals[isolatedKey]) categoryTotals[isolatedKey] = { earned: 0, possible: 0 };
+        categoryTotals[isolatedKey].possible += possibleValue;
+    });
+
+    updateImpactBreakdown(courseId, activeWeights, categoryTotals, standardTotalPossible);
 }
 
 function recalculateOverall(overallGradeElement, currentCourseId, activeWeights) {
@@ -535,11 +491,7 @@ function recalculateOverall(overallGradeElement, currentCourseId, activeWeights)
         }
     }
 
-    if (standardTotalPossible > 0) {
-        updateImpactBreakdown(currentCourseId, activeWeights, categoryTotals, standardTotalPossible);
-        
-        let textResult = "";
-    }
+    updateImpactBreakdown(currentCourseId, activeWeights, categoryTotals, standardTotalPossible);
 }
 
 let observerTimer;
@@ -549,9 +501,9 @@ const observer = new MutationObserver(() => {
 });
 
 function startObserver() {
-    if (location.href.includes('/sp/')) {
-        observer.observe(document.body, { childList: true, subtree: true });
-    }
+    if (!location.href.includes('/sp/')) return;
+    const mainContent = document.body;
+    observer.observe(mainContent, { childList: true, subtree: true });
 }
 
 let lastURL = location.href;
@@ -573,6 +525,16 @@ setInterval(() => {
     }
 }, 1000);
 
+function getGradeColor(earned, possible) {
+    if (possible <= 0) return '#9aa0a6'; // Muted gray for zero-point items
+    
+    const percentage = Math.min(Math.max((earned / possible), 0), 1);
+    // Hue ranges from 0 (Red) at 0% to 120 (Green) at 100%
+    const hue = percentage * 120;
+    
+    return `hsl(${hue}, 75%, 45%)`;
+}
+
 function updateImpactBreakdown(currentCourseId, activeWeights, categoryTotals, standardTotalPossible) {
     const assignments = [];
 
@@ -585,13 +547,24 @@ function updateImpactBreakdown(currentCourseId, activeWeights, categoryTotals, s
         const possible = parseFloat(input.dataset.possible) || 0;
         if (possible <= 0) return;
 
+        const earned = parseFloat(input.value) || 0;
         const cat = input.dataset.category;
-        const container = input.closest(SELECTORS.scoreContainer);
-        const nameEl = container?.parentElement?.querySelector('h1, h2, h3, .A666Wd, .SUZp4e');
-        const name = nameEl ? nameEl.textContent.trim() : 'Assignment';
 
-        // Find the target assignment row and any embedded link element
-        const rowEl = container.closest('[role="listitem"]') || container.parentElement;
+        let titleEl = null;
+        let rowEl = null;
+        let parentNode = input.parentElement;
+
+        while (parentNode && parentNode !== document.body) {
+            const match = parentNode.querySelector('[jsname="rQC7Ie"][aria-label], [jsname="rQC7Ie"]');
+            if (match) {
+                titleEl = match;
+                rowEl = parentNode;
+                break;
+            }
+            parentNode = parentNode.parentElement;
+        }
+
+        const name = titleEl?.getAttribute('aria-label')?.trim() || 'Assignment';
         const linkEl = rowEl?.querySelector('a[href*="/a/"]');
 
         let weightPercent = 0;
@@ -606,45 +579,74 @@ function updateImpactBreakdown(currentCourseId, activeWeights, categoryTotals, s
         }
 
         if (weightPercent > 0) {
-            assignments.push({ name, possible, weightPercent, rowEl, linkEl });
+            assignments.push({ name, earned, possible, weightPercent, category: cat, rowEl, linkEl });
         }
     });
 
-    if (assignments.length === 0) return;
+    let barContainer = document.getElementById('what-if-impact-breakdown');
 
-    const filterContainer = document.querySelector(SELECTORS.filterContainer);
+    if (assignments.length === 0) {
+        if (barContainer) barContainer.remove();
+        return;
+    }
+
+    // 1. Try finding primary filter container, or fallback to main classroom content wraps
+    let filterContainer = document.querySelector(SELECTORS.filterContainer) 
+                        || document.querySelector('.ZnooZb') 
+                        || document.querySelector('[role="main"] > div')
+                        || document.querySelector(SELECTORS.scoreContainer)?.closest('[role="main"]');
+
     if (!filterContainer) return;
 
-    let barContainer = document.getElementById('what-if-impact-breakdown');
-    if (!barContainer) {
+    if (!barContainer || !filterContainer.contains(barContainer)) {
+        if (barContainer) barContainer.remove();
         barContainer = document.createElement('div');
         barContainer.id = 'what-if-impact-breakdown';
         barContainer.className = 'what-if-impact-bar-container';
+
+        // Append to the end so it lands on the correct side/below filters
         filterContainer.appendChild(barContainer);
     }
 
-    const palette = [
-        '#1a73e8', '#34a853', '#f9ab00', '#ea4335', '#a142f4', 
-        '#24c1e0', '#f28b82', '#fdd663', '#81c995', '#8ab4f8'
-    ];
+    barContainer.innerHTML = `
+        <div class="what-if-impact-bar-labels">
+            <span>Newest</span>
+            <span class="what-if-info-icon" id="what-if-impact-info-btn">ⓘ</span>
+            <span>Oldest</span>
+        </div>
+    `;
 
-    barContainer.innerHTML = '';
+    const infoBtn = barContainer.querySelector('#what-if-impact-info-btn');
+    if (infoBtn) {
+        infoBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showWhatIfModal('Grade Bar',
+                `<strong>The more an assignment is worth, the more space it takes up on the bar.</strong>
+                <br>
+                The color reflects the score you got for that assignment.
+                <br><br>
+                Clicking on the bar will jump to that assignment in the gradebook.`
+            );
+        });
+    }
+
     const bar = document.createElement('div');
     bar.className = 'what-if-impact-bar';
 
-    assignments.forEach((item, index) => {
+    assignments.forEach((item) => {
+        const scorePct = ((item.earned / item.possible) * 100).toFixed(1);
         const segment = document.createElement('div');
         segment.className = 'what-if-bar-segment';
         segment.style.width = `${item.weightPercent}%`;
-        segment.style.backgroundColor = palette[index % palette.length];
-        segment.title = `${item.name}: ${item.weightPercent.toFixed(1)}% of grade (${item.possible} pts) — Click to open`;
+        segment.style.backgroundColor = getGradeColor(item.earned, item.possible);
+        
+        const catLabel = item.category && item.category !== 'Uncategorized' ? ` [${item.category}]` : '';
+        segment.title = `${item.name}${catLabel}\n${scorePct}% (${item.earned}/${item.possible} pts) — ${item.weightPercent.toFixed(1)}% of total grade`;
 
         segment.addEventListener('click', (e) => {
             e.stopPropagation();
             if (item.rowEl) {
                 item.rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                
-                // Open the assignment link if present; otherwise click the row element to expand
                 if (item.linkEl) {
                     item.linkEl.click();
                 } else if (typeof item.rowEl.click === 'function') {
@@ -657,6 +659,29 @@ function updateImpactBreakdown(currentCourseId, activeWeights, categoryTotals, s
     });
 
     barContainer.appendChild(bar);
+}
+
+function showWhatIfModal(title, htmlContent) {
+    const existing = document.getElementById('what-if-custom-modal');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'what-if-custom-modal';
+    modal.className = 'what-if-modal-overlay';
+    modal.innerHTML = `
+        <div class="what-if-modal-content">
+            <button class="what-if-modal-close" aria-label="Close">&times;</button>
+            <h3 class="what-if-modal-title">${title}</h3>
+            <div class="what-if-modal-body">${htmlContent}</div>
+        </div>
+    `;
+
+    modal.querySelector('.what-if-modal-close').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+    });
+
+    document.body.appendChild(modal);
 }
 
 injectHypotheticalInputs();
