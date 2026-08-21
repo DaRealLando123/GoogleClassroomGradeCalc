@@ -623,6 +623,8 @@ function updateImpactBreakdown(currentCourseId, activeWeights, categoryTotals, s
             showWhatIfModal('Grade Bar',
                 `<strong>The more an assignment is worth, the more space it takes up on the bar.</strong>
                 <br>
+                <strong>Having non-graded or few assignments will make this way less accurate!</strong> 
+                <br>
                 The color reflects the score you got for that assignment.
                 <br><br>
                 Clicking on the bar will jump to that assignment in the gradebook.`
