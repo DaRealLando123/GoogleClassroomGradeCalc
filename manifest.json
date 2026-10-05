@@ -10,7 +10,7 @@
         "*://*.classroom.google.com/*"
       ],
       "css": ["styles.css"],
-      "js": ["content.js"]
+      "js": ["grade-loader.js", "content.js"]
     }
   ],
   "web_accessible_resources": [

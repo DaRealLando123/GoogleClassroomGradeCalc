@@ -1,19 +1,35 @@
-@keyframes whatIfColorThrob {
-    0% { transform: scale(0.95); background-color: #1a73e8; box-shadow: 0 4px 15px rgba(26, 115, 232, 0.4); }
-    25% { background-color: #ea4335; box-shadow: 0 4px 15px rgba(234, 67, 53, 0.4); }
-    50% { transform: scale(1.05); background-color: #f9ab00; box-shadow: 0 4px 15px rgba(249, 171, 0, 0.4); }
-    75% { background-color: #34a853; box-shadow: 0 4px 15px rgba(52, 168, 83, 0.4); }
-    100% { transform: scale(0.95); background-color: #1a73e8; box-shadow: 0 4px 15px rgba(26, 115, 232, 0.4); }
+@keyframes whatIfSpinner {
+    to { transform: rotate(360deg); }
 }
 
 .what-if-overlay {
     position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-    background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(4px);
+    background: rgba(255, 255, 255, 0.85);
     z-index: 100000; display: flex; justify-content: center; align-items: center;
     transition: opacity 0.3s ease-in-out; pointer-events: all;
 }
 
-.what-if-spinner { width: 60px; height: 60px; border-radius: 50%; animation: whatIfColorThrob 3s infinite ease-in-out; }
+.what-if-spinner {
+    width: 32px; height: 32px; border: 3px solid #dadce0; border-top-color: #1a73e8;
+    border-radius: 50%; animation: whatIfSpinner 0.8s linear infinite;
+}
+.what-if-load-card {
+    display: flex; flex-direction: column; align-items: center; padding: 20px;
+    font: 14px Roboto, Arial, sans-serif; color: #202124; text-align: center;
+}
+.what-if-load-card button {
+    border: 1px solid #dadce0; border-radius: 6px; padding: 8px 12px;
+    background: white; color: #1a73e8; font: inherit; cursor: pointer;
+}
+.what-if-load-notice {
+    position: fixed; bottom: 16px; right: 16px; max-width: min(360px, calc(100vw - 32px));
+    background: white; border: 1px solid #dadce0; border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15); z-index: 100000;
+}
+.what-if-load-notice .what-if-spinner { display: none; }
+@media (prefers-reduced-motion: reduce) {
+    .what-if-spinner { animation: none; }
+}
 
 .what-if-donate-btn {
     background: transparent !important;

@@ -16,7 +16,6 @@ const POSSIBLE_SCORE_REGEX = /\/\s*(\d+)/;
 
  
 window.gclassCourseWeightsRegistry = window.gclassCourseWeightsRegistry || {};
-window.scrolledCoursesRegistry = window.scrolledCoursesRegistry || {}; 
 window.whatIfState = window.whatIfState || {}; 
 window.hasAutoClicked = false; 
 window.lastCalculatedGradeText = "";
@@ -24,6 +23,43 @@ window.lastCalculatedGradeText = "";
 let cachedScrollContainer = null;
 let cachedOverallGradeEl = null;
 const categoryNodeCache = new WeakMap();
+let gradeLoader = null;
+let gradeLoadStatus = 'idle';
+let gradeLoadURL = location.href;
+let removeBannerScrollListener = null;
+
+const OWN_UI_SELECTOR = '.what-if-input, .what-if-reset-btn, .what-if-overlay, ' +
+    '#what-if-load-status, #what-if-sticky-grade-banner, #what-if-impact-breakdown, ' +
+    '#what-if-donate-anchor, #what-if-custom-modal';
+
+function isExtensionNode(node) {
+    const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+    return !!element?.closest(OWN_UI_SELECTOR);
+}
+
+function isClassroomMutation(mutation) {
+    if (isExtensionNode(mutation.target) || mutation.target === cachedOverallGradeEl) return false;
+    const changedNodes = [...mutation.addedNodes, ...mutation.removedNodes];
+    return changedNodes.length === 0 || changedNodes.some(node => !isExtensionNode(node));
+}
+
+function affectsAssignments(mutation) {
+    const selector = `${SELECTORS.scoreContainer}, ${SELECTORS.assignmentTitle}, ${SELECTORS.categoryLabel}`;
+    const element = mutation.target.nodeType === Node.ELEMENT_NODE ? mutation.target : mutation.target.parentElement;
+    if (element?.closest(selector)) return true;
+    return [...mutation.addedNodes, ...mutation.removedNodes].some(node =>
+        node.nodeType === Node.ELEMENT_NODE && (node.matches(selector) || node.querySelector(selector)));
+}
+
+function suspendCalculations() {
+    document.querySelectorAll('.what-if-input, .what-if-reset-btn').forEach(input => input.disabled = true);
+    if (cachedOverallGradeEl?.dataset.originalText !== undefined) {
+        cachedOverallGradeEl.innerText = cachedOverallGradeEl.dataset.originalText;
+        cachedOverallGradeEl.classList.remove('hypothetical-header-text');
+    }
+    document.getElementById('what-if-impact-breakdown')?.remove();
+    document.getElementById('what-if-sticky-grade-banner')?.classList.remove('visible');
+}
 
 function getCourseId() {
     const match = location.href.match(/\/c\/([a-zA-Z0-9_]+)/);
@@ -67,7 +103,8 @@ function injectDonationButton() {
 }
 
 function injectFloatingBanner() {
-    if (document.getElementById('what-if-sticky-grade-banner')) return;
+    if (document.getElementById('what-if-sticky-grade-banner') || !location.href.includes('/sp/')) return;
+    removeBannerScrollListener?.();
 
     const banner = document.createElement('div');
     banner.id = 'what-if-sticky-grade-banner';
@@ -78,7 +115,7 @@ function injectFloatingBanner() {
     const scrollTarget = getScrollContainer();
     const handleScroll = () => {
         const scrollTop = scrollTarget === window ? window.scrollY : scrollTarget.scrollTop;
-        if (scrollTop > 150 && location.href.includes('/sp/')) {
+        if (scrollTop > 150 && location.href.includes('/sp/') && gradeLoadStatus === 'ready') {
             banner.classList.add('visible');
             const innerVal = document.getElementById('what-if-banner-grade-text');
             if (innerVal && innerVal.textContent !== window.lastCalculatedGradeText) {
@@ -90,8 +127,9 @@ function injectFloatingBanner() {
         }
     };
 
-    scrollTarget.removeEventListener('scroll', handleScroll);
     scrollTarget.addEventListener('scroll', handleScroll, { passive: true });
+    removeBannerScrollListener = () => scrollTarget.removeEventListener('scroll', handleScroll);
+    handleScroll();
 }
 
 function generateAssignmentId(container, earned, possible, category, index, courseId) {
@@ -102,9 +140,10 @@ function generateAssignmentId(container, earned, possible, category, index, cour
 }
 
 function getScrollContainer() {
-    if (cachedScrollContainer && document.body.contains(cachedScrollContainer)) return cachedScrollContainer;
-    const scoreSample = document.querySelector(SELECTORS.scoreContainer);
+    const scoreSample = document.querySelector(SELECTORS.scoreContainer) || document.querySelector(SELECTORS.assignmentTitle);
     if (!scoreSample) return window;
+    if (cachedScrollContainer?.isConnected && cachedScrollContainer.contains(scoreSample) &&
+        cachedScrollContainer.scrollHeight > cachedScrollContainer.clientHeight) return cachedScrollContainer;
 
     let parent = scoreSample.parentElement;
     while (parent && parent !== document.body) {
@@ -119,47 +158,81 @@ function getScrollContainer() {
 }
 
 function triggerAutoScrollLoad() {
-    if (!location.href.includes('/sp/')) return;
-    const courseId = getCourseId();
-    if (window.scrolledCoursesRegistry[courseId]) return;
+    if (gradeLoadStatus !== 'idle' || !location.href.includes('/sp/')) return;
+    if (!document.querySelector(`${SELECTORS.scoreContainer}, ${SELECTORS.assignmentTitle}`)) return;
+    gradeLoadStatus = 'loading';
+    gradeLoadURL = location.href;
+    suspendCalculations();
 
-    const scrollTarget = getScrollContainer();
-    if (!scrollTarget || !document.querySelector(SELECTORS.scoreContainer)) return;
-
-    window.scrolledCoursesRegistry[courseId] = true;
-
-    const overlay = document.createElement('div');
-    overlay.className = 'what-if-overlay';
-    overlay.innerHTML = `<div class="what-if-spinner"></div>`;
-    document.body.appendChild(overlay);
-
-    const isWindow = scrollTarget === window;
-    const originalScrollTop = isWindow ? window.scrollY : scrollTarget.scrollTop;
-
-    let lastRowCount = 0;
-    let stableChecks = 0;
-
-    const scrollInterval = setInterval(() => {
-        const currentRowCount = document.querySelectorAll(SELECTORS.scoreContainer).length;
-        if (isWindow) window.scrollTo(0, document.body.scrollHeight);
-        else scrollTarget.scrollTop = scrollTarget.scrollHeight;
-
-        if (currentRowCount === lastRowCount) {
-            stableChecks++;
-            if (stableChecks >= 4) { 
-                clearInterval(scrollInterval);
-                if (isWindow) window.scrollTo(0, originalScrollTop);
-                else scrollTarget.scrollTop = originalScrollTop;
-
-                overlay.style.opacity = '0';
-                setTimeout(() => overlay.remove(), 300);
-                injectHypotheticalInputs();
-            }
-        } else {
-            stableChecks = 0; 
+    document.getElementById('what-if-load-status')?.remove();
+    const status = document.createElement('div');
+    status.id = 'what-if-load-status';
+    status.className = 'what-if-overlay';
+    status.innerHTML = `<div class="what-if-load-card">
+        <div class="what-if-spinner" aria-hidden="true"></div>
+        <p role="status" aria-live="polite">Loading assignments…</p>
+        <button type="button">Stop loading</button>
+    </div>`;
+    const message = status.querySelector('p');
+    const button = status.querySelector('button');
+    let pendingGradeCount = 0;
+    button.addEventListener('click', () => {
+        if (gradeLoadStatus === 'loading') gradeLoader.stop();
+        else {
+            gradeLoadStatus = 'idle';
+            triggerAutoScrollLoad();
         }
-        lastRowCount = currentRowCount;
-    }, 400); 
+    });
+    document.body.appendChild(status);
+
+    gradeLoader = window.createGradeLoader({
+        root: document.body,
+        getScrollTarget: () => {
+            if (location.href !== gradeLoadURL) {
+                gradeLoader.cancel();
+                return null;
+            }
+            return getScrollContainer();
+        },
+        getProgress: () => {
+            const scores = [...document.querySelectorAll(SELECTORS.scoreContainer)]
+                .filter(element => element.getClientRects().length > 0);
+            pendingGradeCount = scores.filter(element =>
+                !element.querySelector(SELECTORS.earnedScore)?.textContent.trim()).length;
+            return {
+                gradeCount: scores.length - pendingGradeCount,
+                assignmentCount: document.querySelectorAll(SELECTORS.assignmentTitle).length
+            };
+        },
+        hasPendingLoad: () => {
+            if (pendingGradeCount > 0) return true;
+            const sample = document.querySelector(SELECTORS.scoreContainer) || document.querySelector(SELECTORS.assignmentTitle);
+            const scope = sample?.closest('[role="main"]') || document.body;
+            return [...scope.querySelectorAll('[aria-busy="true"], [role="progressbar"]')]
+                .some(element => !isExtensionNode(element) && element.getClientRects().length > 0 &&
+                    window.getComputedStyle(element).visibility !== 'hidden') || scope.getAttribute('aria-busy') === 'true';
+        },
+        isRelevantMutation: mutation => isClassroomMutation(mutation) &&
+            (affectsAssignments(mutation) || mutation.type === 'attributes'),
+        onProgress: ({ gradeCount }) => {
+            message.textContent = `Loading assignments… ${gradeCount} grades found`;
+        },
+        onComplete: () => {
+            if (location.href !== gradeLoadURL) return;
+            gradeLoadStatus = 'ready';
+            status.remove();
+            injectHypotheticalInputs();
+        },
+        onStop: reason => {
+            gradeLoadStatus = 'paused';
+            status.className = 'what-if-load-notice';
+            message.textContent = reason === 'cancelled'
+                ? 'Loading stopped. Load all assignments to use the calculator.'
+                : 'Classroom is taking longer to load. Retry to finish loading all assignments.';
+            button.textContent = 'Retry loading';
+        }
+    });
+    gradeLoader.start();
 }
 
 function triggerNativeClick(el) {
@@ -256,7 +329,6 @@ function toggleFieldVisualFeedback(inputEl) {
 
 function injectHypotheticalInputs() {
     injectDonationButton();
-    injectFloatingBanner();
 
     if (!location.href.includes('/sp/')) return;
     if (typeof observer !== 'undefined') observer.disconnect();
@@ -278,11 +350,19 @@ function injectHypotheticalInputs() {
     const activeWeights = window.gclassCourseWeightsRegistry[courseId];
 
     if (detailsElement && !activeWeights && !window.isKnownUnweighted && !window.hasAutoClicked) {
-        window.hasAutoClicked = true; 
-        setTimeout(() => triggerNativeClick(detailsElement), 500);
+        window.hasAutoClicked = true;
+        const detailsURL = location.href;
+        setTimeout(() => {
+            if (location.href === detailsURL && detailsElement.isConnected) triggerNativeClick(detailsElement);
+        }, 500);
     }
 
     triggerAutoScrollLoad();
+    if (gradeLoadStatus !== 'ready') {
+        startObserver();
+        return;
+    }
+    injectFloatingBanner();
 
     const scoreContainers = document.querySelectorAll(SELECTORS.scoreContainer);
     const topGrade = getOverallGradeElement();
@@ -341,6 +421,7 @@ function injectHypotheticalInputs() {
                     input.value = window.whatIfState[assignmentId];
                 }
                 input.disabled = isLocked;
+                resetBtn.disabled = isLocked;
                 toggleFieldVisualFeedback(input);
                 return;
             }
@@ -360,6 +441,7 @@ function injectHypotheticalInputs() {
 
         resetBtn = document.createElement('button');
         resetBtn.className = 'what-if-reset-btn';
+        resetBtn.disabled = isLocked;
         resetBtn.innerHTML = '&times;';
         resetBtn.title = 'Reset grade';
 
@@ -367,6 +449,7 @@ function injectHypotheticalInputs() {
         input.addEventListener('click', stopProp);
         input.addEventListener('mousedown', stopProp);
         input.addEventListener('input', () => {
+            if (gradeLoadStatus !== 'ready' || location.href !== gradeLoadURL) return;
             window.whatIfState[assignmentId] = input.value;
             toggleFieldVisualFeedback(input);
             if (topGrade) recalculateOverall(topGrade, courseId, activeWeights);
@@ -375,6 +458,7 @@ function injectHypotheticalInputs() {
 
         resetBtn.addEventListener('click', (e) => {
             e.stopPropagation(); e.preventDefault();
+            if (gradeLoadStatus !== 'ready' || location.href !== gradeLoadURL) return;
             delete window.whatIfState[assignmentId]; 
             input.value = input.dataset.original; 
             toggleFieldVisualFeedback(input);
@@ -398,6 +482,7 @@ function injectHypotheticalInputs() {
 }
 
 function refreshBreakdownOnly(courseId, activeWeights) {
+    if (gradeLoadStatus !== 'ready') return;
     let categoryTotals = {};
     let standardTotalPossible = 0;
 
@@ -419,7 +504,7 @@ function refreshBreakdownOnly(courseId, activeWeights) {
 }
 
 function recalculateOverall(overallGradeElement, currentCourseId, activeWeights) {
-    console.log("Recalculating overall grade.")
+    if (gradeLoadStatus !== 'ready') return;
     
     let isChanged = false;
     let categoryTotals = {};
@@ -495,7 +580,14 @@ function recalculateOverall(overallGradeElement, currentCourseId, activeWeights)
 }
 
 let observerTimer;
-const observer = new MutationObserver(() => {
+const observer = new MutationObserver(mutations => {
+    if (checkNavigation()) return;
+    const classroomMutations = mutations.filter(isClassroomMutation);
+    if (!classroomMutations.length || gradeLoadStatus === 'loading' || gradeLoadStatus === 'paused') return;
+    if (gradeLoadStatus === 'ready' && classroomMutations.some(affectsAssignments)) {
+        gradeLoadStatus = 'idle';
+        suspendCalculations();
+    }
     clearTimeout(observerTimer);
     observerTimer = setTimeout(injectHypotheticalInputs, 50);
 });
@@ -503,26 +595,39 @@ const observer = new MutationObserver(() => {
 function startObserver() {
     if (!location.href.includes('/sp/')) return;
     const mainContent = document.body;
-    observer.observe(mainContent, { childList: true, subtree: true });
+    observer.observe(mainContent, { childList: true, subtree: true, characterData: true });
 }
 
 let lastURL = location.href;
-setInterval(() => {
-    injectDonationButton();
-
+function checkNavigation() {
     if (location.href !== lastURL) {
         lastURL = location.href;
+        gradeLoader?.cancel();
+        gradeLoader = null;
+        gradeLoadStatus = 'idle';
+        gradeLoadURL = location.href;
+        clearTimeout(observerTimer);
+        observer.disconnect();
+        removeBannerScrollListener?.();
+        removeBannerScrollListener = null;
         window.hasAutoClicked = false; 
         window.isKnownUnweighted = false;
         window.lastCalculatedGradeText = "";
         cachedScrollContainer = null;
         cachedOverallGradeEl = null;
         
-        document.querySelectorAll('.what-if-input, .what-if-reset-btn, #what-if-sticky-grade-banner').forEach(el => el.remove());
+        document.querySelectorAll('.what-if-input, .what-if-reset-btn, #what-if-sticky-grade-banner, #what-if-impact-breakdown, #what-if-load-status').forEach(el => el.remove());
         document.querySelectorAll(SELECTORS.earnedScore).forEach(span => span.style.display = '');
         
         injectHypotheticalInputs();
+        return true;
     }
+    return false;
+}
+
+setInterval(() => {
+    injectDonationButton();
+    checkNavigation();
 }, 1000);
 
 function getGradeColor(earned, possible) {
@@ -536,6 +641,7 @@ function getGradeColor(earned, possible) {
 }
 
 function updateImpactBreakdown(currentCourseId, activeWeights, categoryTotals, standardTotalPossible) {
+    if (gradeLoadStatus !== 'ready') return;
     const assignments = [];
 
     document.querySelectorAll('.what-if-input').forEach((input) => {
