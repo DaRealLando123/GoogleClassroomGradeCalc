@@ -227,25 +227,25 @@ test('cancelling on navigation clears all work without scrolling the new route',
     assert.equal(h.completions, 0);
 });
 
-test('finishing uses the document scrolling element and restores both axes', () => {
+test('finishing uses the document scrolling element and jumps to the top', () => {
     const h = createHarness();
     h.loader.start();
     h.advance(16);
     assert.equal(h.window.scrollY, 4200, 'document extent must not come from the shorter body');
     h.advance(1500);
     assert.equal(h.completions, 1);
-    assert.equal(h.window.scrollY, 240);
+    assert.equal(h.window.scrollY, 0);
     assert.equal(h.window.scrollX, 13);
 });
 
-test('finishing restores a nested scrolling container without moving the window', () => {
+test('finishing jumps to the top of a nested container without moving the window', () => {
     const h = createHarness({nested: true});
     h.loader.start();
     h.advance(16);
     assert.equal(h.innerScroller.scrollTop, 2500);
     h.advance(1500);
     assert.equal(h.completions, 1);
-    assert.equal(h.innerScroller.scrollTop, 175);
+    assert.equal(h.innerScroller.scrollTop, 0);
     assert.equal(h.innerScroller.scrollLeft, 7);
     assert.equal(h.window.scrollY, 240);
     assert.ok(h.scrolls.every(scroll => scroll.target === 'nested'));
@@ -277,4 +277,25 @@ test('irrelevant page mutations neither rescan assignments nor postpone completi
     h.advance(300);
     assert.equal(h.completions, 1);
     assert.equal(h.progressReads, initialReads);
+});
+
+test('returns to the top promptly when every known assignment has grade data', () => {
+    const h = createHarness({quietMs: 1600});
+    h.setProgress({gradeCount: 2, assignmentCount: 2, hasAllGradeData: true});
+    h.loader.start();
+    h.advance(400);
+    assert.equal(h.completions, 1);
+    assert.equal(h.window.scrollY, 0);
+});
+
+test('keeps the longer fallback when assignment titles lack grade data', () => {
+    const h = createHarness({quietMs: 1600});
+    h.setProgress({gradeCount: 0, assignmentCount: 2, hasAllGradeData: false});
+    h.loader.start();
+    h.advance(900);
+    assert.equal(h.completions, 0);
+    h.setProgress({gradeCount: 2, hasAllGradeData: true});
+    h.mutate();
+    h.advance(400);
+    assert.equal(h.completions, 1);
 });

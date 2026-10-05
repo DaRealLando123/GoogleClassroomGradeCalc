@@ -197,17 +197,22 @@ function triggerAutoScrollLoad() {
         getProgress: () => {
             const scores = [...document.querySelectorAll(SELECTORS.scoreContainer)]
                 .filter(element => element.getClientRects().length > 0);
-            pendingGradeCount = scores.filter(element =>
-                !element.querySelector(SELECTORS.earnedScore)?.textContent.trim()).length;
+            pendingGradeCount = scores.filter(element => {
+                const earned = element.querySelector(SELECTORS.earnedScore)?.textContent.trim();
+                return !earned || (Number.isFinite(Number(earned)) && !POSSIBLE_SCORE_REGEX.test(element.textContent));
+            }).length;
+            const assignmentCount = document.querySelectorAll(SELECTORS.assignmentTitle).length;
+            const gradeCount = scores.length - pendingGradeCount;
             return {
-                gradeCount: scores.length - pendingGradeCount,
-                assignmentCount: document.querySelectorAll(SELECTORS.assignmentTitle).length
+                gradeCount,
+                assignmentCount,
+                hasAllGradeData: assignmentCount > 0 && gradeCount >= assignmentCount
             };
         },
         hasPendingLoad: () => {
             if (pendingGradeCount > 0) return true;
             const sample = document.querySelector(SELECTORS.scoreContainer) || document.querySelector(SELECTORS.assignmentTitle);
-            const scope = sample?.closest('[role="main"]') || document.body;
+            const scope = sample?.closest('[role="main"], main') || document.body;
             return [...scope.querySelectorAll('[aria-busy="true"], [role="progressbar"]')]
                 .some(element => !isExtensionNode(element) && element.getClientRects().length > 0 &&
                     window.getComputedStyle(element).visibility !== 'hidden') || scope.getAttribute('aria-busy') === 'true';

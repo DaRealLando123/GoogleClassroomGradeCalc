@@ -109,6 +109,22 @@ async function openFixture(t, options = {}) {
             }
 
             addAssignments(settings.initialCount ?? 3, settings.initialGraded !== false);
+            let hydrationTimer;
+            if (settings.hydrationDelay) {
+                const grades = [...list.querySelectorAll('.K9DItd')];
+                grades.forEach(grade => {
+                    if (settings.hydrationPart === 'container') grade.remove();
+                    else if (settings.hydrationPart === 'possible') grade.lastChild.textContent = '';
+                    else grade.querySelector('.wyQ9e').textContent = '';
+                });
+                hydrationTimer = setTimeout(() => {
+                    if (settings.hydrationPart === 'container') {
+                        list.querySelectorAll('.assignment').forEach((row, index) => row.appendChild(grades[index]));
+                    } else {
+                        grades.forEach(grade => grade.innerHTML = '<span class="wyQ9e">80</span> / 100');
+                    }
+                }, settings.hydrationDelay);
+            }
             target.addEventListener('scroll', onScroll);
             const monitor = new MutationObserver(() => {
                 if (!state.done && document.querySelector('.what-if-input, #what-if-impact-breakdown')) {
@@ -121,6 +137,7 @@ async function openFixture(t, options = {}) {
             window.__setBusy = setBusy;
             state.cancel = () => {
                 clearTimeout(timer);
+                clearTimeout(hydrationTimer);
                 target.removeEventListener('scroll', onScroll);
                 monitor.disconnect();
             };
@@ -128,18 +145,18 @@ async function openFixture(t, options = {}) {
         window.__installFixture(config);
     }, options);
     await page.addScriptTag({path: path.join(projectRoot, 'grade-loader.js')});
-    await page.evaluate(() => {
+    await page.evaluate(quietMs => {
         const createLoader = window.createGradeLoader;
         window.__loaderStarts = 0;
         window.__completedLoads = 0;
         window.createGradeLoader = options => {
             window.__loaderStarts++;
-            return createLoader({...options, quietMs: 100, maxDurationMs: 4000, onComplete() {
+            return createLoader({...options, quietMs, maxDurationMs: 4000, onComplete() {
                 window.__completedLoads++;
                 options.onComplete();
             }});
         };
-    });
+    }, options.quietMs ?? 100);
     await page.addScriptTag({path: path.join(projectRoot, 'content.js')});
     await page.evaluate(() => {
         const inject = window.injectHypotheticalInputs;
@@ -163,6 +180,20 @@ async function waitUntilReady(page, expectedInputs) {
         document.querySelectorAll('.what-if-input:not(:disabled)').length === count &&
         document.querySelectorAll('.what-if-bar-segment').length === count,
     expectedInputs, {timeout: 8000});
+}
+
+for (const hydrationPart of ['earned', 'possible', 'container']) {
+    test(`waits for delayed ${hydrationPart} grade data even when titles are already present`, async t => {
+        const page = await openFixture(t, {
+            nested: true, hydrationDelay: 900, hydrationPart, quietMs: 1600
+        });
+        await page.waitForTimeout(550);
+        assert.equal(await page.locator('.what-if-input, #what-if-impact-breakdown').count(), 0);
+        await waitUntilReady(page, 3);
+        assert.equal(await page.evaluate(() => document.querySelector('#scroller').scrollTop), 0);
+        await page.locator('.what-if-input').first().fill('100');
+        assert.equal(await page.locator('[jsname="V67aGc"]').innerText(), '86.67% (Hypothetical)');
+    });
 }
 
 for (const nested of [false, true]) {

@@ -1,6 +1,7 @@
 // Loads Classroom's lazy assignment list before the calculator reads its totals.
 window.createGradeLoader = function createGradeLoader(options) {
-    const quietMs = options.quietMs ?? 500;
+    const quietMs = options.quietMs ?? 1600;
+    const readyQuietMs = options.readyQuietMs ?? 150;
     const maxDurationMs = options.maxDurationMs ?? 45000;
     const originalPositions = new Map();
     let active = false;
@@ -71,9 +72,9 @@ window.createGradeLoader = function createGradeLoader(options) {
             if (!lastProgress || progress.gradeCount !== lastProgress.gradeCount ||
                 progress.assignmentCount !== lastProgress.assignmentCount) {
                 lastActivity = now;
-                lastProgress = progress;
                 options.onProgress(progress);
             }
+            lastProgress = progress;
         }
 
         const bottom = Math.max(0, metrics.height - metrics.viewport);
@@ -87,7 +88,8 @@ window.createGradeLoader = function createGradeLoader(options) {
         if (pending) lastActivity = now;
         // Classroom exposes no documented end-of-list signal. Require a quiet list
         // at the bottom, and keep waiting while its loading indicator is visible.
-        if (atBottom && !pending && now - lastActivity >= quietMs) {
+        const settleMs = lastProgress?.hasAllGradeData ? readyQuietMs : quietMs;
+        if (atBottom && !pending && now - lastActivity >= settleMs) {
             cleanup(false);
             target.scrollTo({ top: 0, left: metrics.left, behavior: 'instant' });
             options.onComplete();
@@ -95,7 +97,7 @@ window.createGradeLoader = function createGradeLoader(options) {
         }
 
         clearTimeout(checkTimer);
-        checkTimer = setTimeout(scheduleStep, 100);
+        checkTimer = setTimeout(scheduleStep, 150);
     }
 
     const mutationObserver = new MutationObserver(mutations => {
