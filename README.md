@@ -16,9 +16,7 @@ The official Classroom API can fetch grades without the scrolling, but would req
 
 ## Testing
 
-Run the dependency-free loader checks with `node --test tests/grade-loader.test.cjs`.
-
-Browser integration checks use Playwright and a simulated Classroom page; they do not access a Google account. With Playwright available, run `node --test tests/classroom-loading.browser.cjs` (set `BROWSER_CHANNEL=msedge` to use an installed Edge browser). Also check a real class with many assignments, a slow connection, and category weights before publishing.
+`node --test tests/grade-loader.test.cjs`.
 
 ## It should be obvious, but GCGC does not mess with actual grades. It’s purely visual with plenty of disclaimers. This is not a cheating tool in any way.
 
