@@ -1,7 +1,7 @@
 ## Before opening a pull request:
-check a real class with a lot of assignments;
-check slow connectivity networks using browser tools;
-and make sure category weights are considered.
+- Check a real class with a lot of assignments.
+- Check slow connectivity networks using browser tools.
+- Make sure category weights are considered.
 
 ## Contributions with assistance by AI:
 
