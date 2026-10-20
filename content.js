@@ -22,23 +22,50 @@ window.lastCalculatedGradeText = "";
 
 let cachedScrollContainer = null;
 let cachedOverallGradeEl = null;
-const categoryNodeCache = new WeakMap();
+let categoryNodeCache = new WeakMap();
 let gradeLoader = null;
 let gradeLoadStatus = 'idle';
 let gradeLoadURL = location.href;
 let removeBannerScrollListener = null;
+const classroomNetwork = window.createClassroomNetworkMonitor?.();
 
 const OWN_UI_SELECTOR = '.what-if-input, .what-if-reset-btn, .what-if-overlay, ' +
     '#what-if-load-status, #what-if-sticky-grade-banner, #what-if-impact-breakdown, ' +
-    '#what-if-donate-anchor, #what-if-custom-modal';
+    '#what-if-custom-modal, #what-if-logo';
+
+function injectLogoIndicator() {
+    if (document.getElementById('what-if-logo')) return;
+    let iconUrl = 'icon128.png';
+    try { iconUrl = globalThis.chrome?.runtime?.getURL?.('icon128.png') || iconUrl; }
+    catch (error) { return; }
+    const logo = document.createElement('img');
+    logo.id = 'what-if-logo';
+    logo.className = 'what-if-logo';
+    logo.src = iconUrl;
+    logo.alt = 'GCGC';
+    logo.width = 48;
+    logo.height = 48;
+    document.body.appendChild(logo);
+}
 
 function isExtensionNode(node) {
     const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
     return !!element?.closest(OWN_UI_SELECTOR);
 }
 
+function isVisibleClassroomElement(element) {
+    return element.getClientRects().length > 0 && !element.closest('[hidden], [aria-hidden="true"]') &&
+        window.getComputedStyle(element).visibility !== 'hidden';
+}
+
+function getVisibleClassroomElement(selector) {
+    return [...document.querySelectorAll(selector)].find(isVisibleClassroomElement) || null;
+}
+
 function isClassroomMutation(mutation) {
     if (isExtensionNode(mutation.target) || mutation.target === cachedOverallGradeEl) return false;
+    const element = mutation.target.nodeType === Node.ELEMENT_NODE ? mutation.target : mutation.target.parentElement;
+    if (element?.closest('[hidden], [aria-hidden="true"]')) return false;
     const changedNodes = [...mutation.addedNodes, ...mutation.removedNodes];
     return changedNodes.length === 0 || changedNodes.some(node => !isExtensionNode(node));
 }
@@ -47,6 +74,7 @@ function affectsAssignments(mutation) {
     const selector = `${SELECTORS.scoreContainer}, ${SELECTORS.assignmentTitle}, ${SELECTORS.categoryLabel}`;
     const element = mutation.target.nodeType === Node.ELEMENT_NODE ? mutation.target : mutation.target.parentElement;
     if (element?.closest(selector)) return true;
+    if (mutation.type === 'attributes' && element?.querySelector(selector)) return true;
     return [...mutation.addedNodes, ...mutation.removedNodes].some(node =>
         node.nodeType === Node.ELEMENT_NODE && (node.matches(selector) || node.querySelector(selector)));
 }
@@ -64,42 +92,6 @@ function suspendCalculations() {
 function getCourseId() {
     const match = location.href.match(/\/c\/([a-zA-Z0-9_]+)/);
     return match ? match[1] : 'unknown';
-}
-
-function injectDonationButton() {
-    if (document.getElementById('what-if-donate-anchor')) return;
-
-    const donateBtn = document.createElement('button');
-    donateBtn.id = 'what-if-donate-anchor';
-    donateBtn.className = 'what-if-donate-btn';
-    donateBtn.type = 'button';
-
-    let iconUrl = 'icon128.png';
-    try { iconUrl = chrome.runtime.getURL('icon128.png'); } catch (e) {}
-
-    donateBtn.innerHTML = `<img src="${iconUrl}" class="what-if-donate-icon" alt="What-If Logo">`;
-
-    donateBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        showWhatIfModal('Google Classroom Grade Calculator | GCGC', `
-            <div class="what-if-credits-container">
-                <img src="${iconUrl}" class="what-if-modal-logo" alt="What-If Logo">
-                <p>Landon Schroering (&copy; 2026)</p>
-                <p class="what-if-modal-desc">Calculate your overall class grade with hypothetical assignment, quiz, and exam scores directly in Classroom.</p>
-                
-                <div class="what-if-modal-links">
-                    <a href="https://ko-fi.com/dareallando123" target="_blank" rel="noopener noreferrer" class="what-if-modal-btn donate-btn">
-                        ☕ Support on Ko-fi
-                    </a>
-                    <a href="https://lando.run/GCGC" target="_blank" rel="noopener noreferrer" class="what-if-modal-btn site-btn">
-                        🌐 Visit Website
-                    </a>
-                </div>
-            </div>
-        `);
-    });
-
-    document.body.appendChild(donateBtn);
 }
 
 function injectFloatingBanner() {
@@ -140,7 +132,7 @@ function generateAssignmentId(container, earned, possible, category, index, cour
 }
 
 function getScrollContainer() {
-    const scoreSample = document.querySelector(SELECTORS.scoreContainer) || document.querySelector(SELECTORS.assignmentTitle);
+    const scoreSample = getVisibleClassroomElement(SELECTORS.scoreContainer) || getVisibleClassroomElement(SELECTORS.assignmentTitle);
     if (!scoreSample) return window;
     if (cachedScrollContainer?.isConnected && cachedScrollContainer.contains(scoreSample) &&
         cachedScrollContainer.scrollHeight > cachedScrollContainer.clientHeight) return cachedScrollContainer;
@@ -159,8 +151,9 @@ function getScrollContainer() {
 
 function triggerAutoScrollLoad() {
     if (gradeLoadStatus !== 'idle' || !location.href.includes('/sp/')) return;
-    if (!document.querySelector(`${SELECTORS.scoreContainer}, ${SELECTORS.assignmentTitle}`)) return;
+    if (!getVisibleClassroomElement(`${SELECTORS.scoreContainer}, ${SELECTORS.assignmentTitle}`)) return;
     gradeLoadStatus = 'loading';
+    classroomNetwork?.setActivity('loading');
     gradeLoadURL = location.href;
     suspendCalculations();
 
@@ -169,24 +162,15 @@ function triggerAutoScrollLoad() {
     status.id = 'what-if-load-status';
     status.className = 'what-if-overlay';
     status.innerHTML = `<div class="what-if-load-card">
-        <div class="what-if-spinner" aria-hidden="true"></div>
-        <p role="status" aria-live="polite">Loading assignments…</p>
-        <button type="button">Stop loading</button>
+        <div class="what-if-spinner" role="status" aria-label="Loading assignments"></div>
     </div>`;
-    const message = status.querySelector('p');
-    const button = status.querySelector('button');
     let pendingGradeCount = 0;
-    button.addEventListener('click', () => {
-        if (gradeLoadStatus === 'loading') gradeLoader.stop();
-        else {
-            gradeLoadStatus = 'idle';
-            triggerAutoScrollLoad();
-        }
-    });
+    let loadedAssignmentCount = 0;
     document.body.appendChild(status);
 
     gradeLoader = window.createGradeLoader({
         root: document.body,
+        network: classroomNetwork,
         getScrollTarget: () => {
             if (location.href !== gradeLoadURL) {
                 gradeLoader.cancel();
@@ -196,22 +180,24 @@ function triggerAutoScrollLoad() {
         },
         getProgress: () => {
             const scores = [...document.querySelectorAll(SELECTORS.scoreContainer)]
-                .filter(element => element.getClientRects().length > 0);
+                .filter(isVisibleClassroomElement);
             pendingGradeCount = scores.filter(element => {
                 const earned = element.querySelector(SELECTORS.earnedScore)?.textContent.trim();
                 return !earned || (Number.isFinite(Number(earned)) && !POSSIBLE_SCORE_REGEX.test(element.textContent));
             }).length;
-            const assignmentCount = document.querySelectorAll(SELECTORS.assignmentTitle).length;
+            const assignmentCount = [...document.querySelectorAll(SELECTORS.assignmentTitle)]
+                .filter(isVisibleClassroomElement).length;
             const gradeCount = scores.length - pendingGradeCount;
             return {
                 gradeCount,
                 assignmentCount,
+                hasPendingGradeData: pendingGradeCount > 0,
                 hasAllGradeData: assignmentCount > 0 && gradeCount >= assignmentCount
             };
         },
         hasPendingLoad: () => {
             if (pendingGradeCount > 0) return true;
-            const sample = document.querySelector(SELECTORS.scoreContainer) || document.querySelector(SELECTORS.assignmentTitle);
+            const sample = getVisibleClassroomElement(SELECTORS.scoreContainer) || getVisibleClassroomElement(SELECTORS.assignmentTitle);
             const scope = sample?.closest('[role="main"], main') || document.body;
             return [...scope.querySelectorAll('[aria-busy="true"], [role="progressbar"]')]
                 .some(element => !isExtensionNode(element) && element.getClientRects().length > 0 &&
@@ -219,22 +205,21 @@ function triggerAutoScrollLoad() {
         },
         isRelevantMutation: mutation => isClassroomMutation(mutation) &&
             (affectsAssignments(mutation) || mutation.type === 'attributes'),
-        onProgress: ({ gradeCount }) => {
-            message.textContent = `Loading assignments… ${gradeCount} grades found`;
+        onProgress: ({ gradeCount, assignmentCount }) => {
+            loadedAssignmentCount = assignmentCount;
+            classroomNetwork?.setActivity('loading', gradeCount);
         },
         onComplete: () => {
             if (location.href !== gradeLoadURL) return;
             gradeLoadStatus = 'ready';
             status.remove();
             injectHypotheticalInputs();
+            classroomNetwork?.setActivity('ready', loadedAssignmentCount);
         },
-        onStop: reason => {
+        onStop: () => {
             gradeLoadStatus = 'paused';
-            status.className = 'what-if-load-notice';
-            message.textContent = reason === 'cancelled'
-                ? 'Loading stopped. Load all assignments to use the calculator.'
-                : 'Classroom is taking longer to load. Retry to finish loading all assignments.';
-            button.textContent = 'Retry loading';
+            classroomNetwork?.setActivity('paused');
+            status.remove();
         }
     });
     gradeLoader.start();
@@ -303,13 +288,18 @@ function scrapeCategoryWeights(courseId) {
 }
 
 function getOverallGradeElement() {
-    if (cachedOverallGradeEl && document.body.contains(cachedOverallGradeEl) && cachedOverallGradeEl.offsetParent !== null) {
+    // A visible grade can be aria-hidden when Classroom supplies separate accessible text.
+    // Hidden page ancestors still exclude grades retained from another class.
+    const isCurrentGrade = element => element?.isConnected && element.textContent.includes('%') &&
+        element.getClientRects().length > 0 && !element.closest('[hidden]') &&
+        !element.parentElement?.closest('[aria-hidden="true"]') &&
+        window.getComputedStyle(element).visibility !== 'hidden';
+    if (isCurrentGrade(cachedOverallGradeEl)) {
         return cachedOverallGradeEl;
     }
     const elements = document.querySelectorAll(SELECTORS.overallGrade);
     for (const el of elements) {
-        // offsetParent is astronomically faster than getBoundingClientRect()
-        if (el.textContent.includes('%') && el.offsetParent !== null) {
+        if (isCurrentGrade(el)) {
             cachedOverallGradeEl = el;
             return el;
         }
@@ -321,7 +311,7 @@ function getDetailsElement() {
     const elements = document.querySelectorAll(SELECTORS.overallGrade);
     for (const el of elements) {
         const text = el.textContent;
-        if ((text.includes('View details') || text.includes('hypothetical') || text.includes('Weighted')) && el.offsetParent !== null) {
+        if ((text.includes('View details') || text.includes('hypothetical') || text.includes('Weighted')) && isVisibleClassroomElement(el)) {
             return el;
         }
     }
@@ -333,9 +323,8 @@ function toggleFieldVisualFeedback(inputEl) {
 }
 
 function injectHypotheticalInputs() {
-    injectDonationButton();
-
     if (!location.href.includes('/sp/')) return;
+    injectLogoIndicator();
     if (typeof observer !== 'undefined') observer.disconnect();
 
     const courseId = getCourseId();
@@ -370,22 +359,17 @@ function injectHypotheticalInputs() {
     injectFloatingBanner();
 
     const scoreContainers = document.querySelectorAll(SELECTORS.scoreContainer);
-    const topGrade = getOverallGradeElement();
     
     if (scoreContainers.length === 0) {
         if (typeof observer !== 'undefined') startObserver();
         return;
     }
 
-    if (topGrade && topGrade.dataset.originalText === undefined) {
-        topGrade.dataset.originalText = topGrade.textContent;
-    }
-
-    const hasCategories = document.querySelector(SELECTORS.categoryLabel) !== null;
+    const hasCategories = getVisibleClassroomElement(SELECTORS.categoryLabel) !== null;
     const isLocked = hasCategories && !activeWeights && !window.isKnownUnweighted;
 
     scoreContainers.forEach((container, containerIndex) => {
-        if (container.offsetParent === null) return;
+        if (!isVisibleClassroomElement(container)) return;
 
         const earnedSpan = container.querySelector(SELECTORS.earnedScore);
         if (!earnedSpan) return;
@@ -397,12 +381,12 @@ function injectHypotheticalInputs() {
 
         let categoryText = "Uncategorized";
         let searchNode = container;
-        while (searchNode && searchNode !== document.body) {
+        while (hasCategories && searchNode && searchNode !== document.body) {
             if (categoryNodeCache.has(searchNode)) {
                 categoryText = categoryNodeCache.get(searchNode);
                 break;
             }
-            const catEl = searchNode.querySelector(SELECTORS.categoryLabel);
+            const catEl = [...searchNode.querySelectorAll(SELECTORS.categoryLabel)].find(isVisibleClassroomElement);
             if (catEl) {
                 categoryText = catEl.textContent.replace(/^[\s•]+/, '').trim();
                 categoryNodeCache.set(searchNode, categoryText);
@@ -457,8 +441,7 @@ function injectHypotheticalInputs() {
             if (gradeLoadStatus !== 'ready' || location.href !== gradeLoadURL) return;
             window.whatIfState[assignmentId] = input.value;
             toggleFieldVisualFeedback(input);
-            if (topGrade) recalculateOverall(topGrade, courseId, activeWeights);
-            else refreshBreakdownOnly(courseId, activeWeights);
+            refreshOverallGrade(courseId, activeWeights);
         });
 
         resetBtn.addEventListener('click', (e) => {
@@ -467,8 +450,7 @@ function injectHypotheticalInputs() {
             delete window.whatIfState[assignmentId]; 
             input.value = input.dataset.original; 
             toggleFieldVisualFeedback(input);
-            if (topGrade) recalculateOverall(topGrade, courseId, activeWeights);
-            else refreshBreakdownOnly(courseId, activeWeights);
+            refreshOverallGrade(courseId, activeWeights);
         });
         resetBtn.addEventListener('mousedown', stopProp);
 
@@ -477,13 +459,19 @@ function injectHypotheticalInputs() {
         container.appendChild(resetBtn); 
     });
 
+    refreshOverallGrade(courseId, activeWeights);
+
+    if (typeof observer !== 'undefined') startObserver();
+}
+
+function refreshOverallGrade(courseId, activeWeights) {
+    const topGrade = getOverallGradeElement();
     if (topGrade) {
+        if (topGrade.dataset.originalText === undefined) topGrade.dataset.originalText = topGrade.textContent;
         recalculateOverall(topGrade, courseId, activeWeights);
     } else {
         refreshBreakdownOnly(courseId, activeWeights);
     }
-
-    if (typeof observer !== 'undefined') startObserver();
 }
 
 function refreshBreakdownOnly(courseId, activeWeights) {
@@ -600,7 +588,10 @@ const observer = new MutationObserver(mutations => {
 function startObserver() {
     if (!location.href.includes('/sp/')) return;
     const mainContent = document.body;
-    observer.observe(mainContent, { childList: true, subtree: true, characterData: true });
+    observer.observe(mainContent, {
+        childList: true, subtree: true, characterData: true,
+        attributes: true, attributeFilter: ['hidden', 'aria-hidden']
+    });
 }
 
 let lastURL = location.href;
@@ -609,6 +600,9 @@ function checkNavigation() {
         lastURL = location.href;
         gradeLoader?.cancel();
         gradeLoader = null;
+        classroomNetwork?.resetRoute();
+        classroomNetwork?.setActivity('idle');
+        document.getElementById('what-if-logo')?.remove();
         gradeLoadStatus = 'idle';
         gradeLoadURL = location.href;
         clearTimeout(observerTimer);
@@ -620,6 +614,7 @@ function checkNavigation() {
         window.lastCalculatedGradeText = "";
         cachedScrollContainer = null;
         cachedOverallGradeEl = null;
+        categoryNodeCache = new WeakMap();
         
         document.querySelectorAll('.what-if-input, .what-if-reset-btn, #what-if-sticky-grade-banner, #what-if-impact-breakdown, #what-if-load-status').forEach(el => el.remove());
         document.querySelectorAll(SELECTORS.earnedScore).forEach(span => span.style.display = '');
@@ -631,8 +626,7 @@ function checkNavigation() {
 }
 
 setInterval(() => {
-    injectDonationButton();
-    checkNavigation();
+    if (!checkNavigation() && gradeLoadStatus === 'idle' && location.href.includes('/sp/')) injectHypotheticalInputs();
 }, 1000);
 
 function getGradeColor(earned, possible) {
@@ -702,10 +696,9 @@ function updateImpactBreakdown(currentCourseId, activeWeights, categoryTotals, s
     }
 
     // 1. Try finding primary filter container, or fallback to main classroom content wraps
-    let filterContainer = document.querySelector(SELECTORS.filterContainer) 
-                        || document.querySelector('.ZnooZb') 
-                        || document.querySelector('[role="main"] > div')
-                        || document.querySelector(SELECTORS.scoreContainer)?.closest('[role="main"]');
+    const filterContainer = getVisibleClassroomElement(SELECTORS.filterContainer)
+                        || getVisibleClassroomElement('[role="main"] > div, main > div')
+                        || getVisibleClassroomElement(SELECTORS.scoreContainer)?.closest('[role="main"], main');
 
     if (!filterContainer) return;
 

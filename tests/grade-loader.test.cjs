@@ -6,12 +6,14 @@ const vm = require('node:vm');
 
 const loaderSource = fs.readFileSync(path.join(__dirname, '..', 'grade-loader.js'), 'utf8');
 
-function createHarness({nested = false, quietMs = 1000, maxDurationMs = 6000} = {}) {
+function createHarness({nested = false, quietMs = 1000, maxDurationMs = 6000, trackNetwork = false} = {}) {
     let now = 0;
     let nextId = 1;
     let progressReads = 0;
     let pendingLoad = false;
     let progress = {gradeCount: 1, assignmentCount: 2};
+    let networkState = {available: true, pending: 0, failed: false};
+    const networkListeners = new Set();
     const tasks = new Map();
     const observers = [];
     const scrolls = [];
@@ -84,6 +86,13 @@ function createHarness({nested = false, quietMs = 1000, maxDurationMs = 6000} = 
     vm.runInNewContext(loaderSource, globals, {filename: 'grade-loader.js'});
     const loader = window.createGradeLoader({
         root,
+        network: trackNetwork ? {
+            getState: () => networkState,
+            watch(listener) {
+                networkListeners.add(listener);
+                return () => networkListeners.delete(listener);
+            }
+        } : undefined,
         getScrollTarget: () => nested ? innerScroller : window,
         getProgress() {
             progressReads++;
@@ -139,6 +148,11 @@ function createHarness({nested = false, quietMs = 1000, maxDurationMs = 6000} = 
         observers,
         setProgress(value) { progress = {...progress, ...value}; },
         setPendingLoad(value) { pendingLoad = value; },
+        setNetworkState(value) {
+            networkState = {...networkState, ...value};
+            networkListeners.forEach(listener => listener());
+        },
+        get networkWatchers() { return networkListeners.size; },
         get progressReads() { return progressReads; },
         get completions() { return completions; },
         get pendingTasks() { return tasks.size; }
@@ -279,23 +293,145 @@ test('irrelevant page mutations neither rescan assignments nor postpone completi
     assert.equal(h.progressReads, initialReads);
 });
 
-test('returns to the top promptly when every known assignment has grade data', () => {
+test('a fully graded current batch still waits for the assignment list to settle', () => {
     const h = createHarness({quietMs: 1600});
     h.setProgress({gradeCount: 2, assignmentCount: 2, hasAllGradeData: true});
     h.loader.start();
     h.advance(400);
+    assert.equal(h.completions, 0);
+    h.advance(1500);
     assert.equal(h.completions, 1);
     assert.equal(h.window.scrollY, 0);
 });
 
-test('keeps the longer fallback when assignment titles lack grade data', () => {
+test('finishes promptly when late scores arrive after the assignment list has settled', () => {
     const h = createHarness({quietMs: 1600});
     h.setProgress({gradeCount: 0, assignmentCount: 2, hasAllGradeData: false});
+    h.setPendingLoad(true);
     h.loader.start();
-    h.advance(900);
+    h.advance(2200);
     assert.equal(h.completions, 0);
     h.setProgress({gradeCount: 2, hasAllGradeData: true});
+    h.setPendingLoad(false);
     h.mutate();
     h.advance(400);
+    assert.equal(h.completions, 1);
+});
+
+test('visits overlapping viewports when grade data is incomplete, without rescanning on every step', () => {
+    const h = createHarness();
+    h.setProgress({gradeCount: 0, assignmentCount: 20, hasAllGradeData: false});
+    h.setPendingLoad(true);
+    h.loader.start();
+    h.advance(500);
+    const positions = h.scrolls.filter(scroll => scroll.target === 'window');
+    assert.equal(positions[0].top, 0);
+    assert.equal(positions.at(-1).top, 4200);
+    for (let i = 1; i < positions.length; i++) {
+        assert.ok(positions[i].top > positions[i - 1].top);
+        assert.ok(positions[i].top - positions[i - 1].top < h.window.innerHeight);
+        assert.ok(positions[i].time > positions[i - 1].time, 'each viewport must get a paint opportunity');
+    }
+    assert.equal(h.progressReads, 1);
+    assert.equal(h.completions, 0);
+    h.loader.cancel();
+});
+
+test('request monitoring removes the fixed completion delay on a fast connection', () => {
+    const h = createHarness({quietMs: 1600, trackNetwork: true});
+    h.setProgress({gradeCount: 2, assignmentCount: 2, hasAllGradeData: true});
+    h.loader.start();
+    h.advance(250);
+    assert.equal(h.completions, 1);
+    assert.equal(h.window.scrollY, 0);
+    assert.equal(h.networkWatchers, 0);
+});
+
+test('waits for a two-minute request without a fixed network timeout', () => {
+    const h = createHarness({quietMs: 1600, trackNetwork: true, maxDurationMs: 0});
+    h.setProgress({gradeCount: 2, assignmentCount: 2, hasAllGradeData: true});
+    h.setNetworkState({pending: 1});
+    h.loader.start();
+    h.advance(120000);
+    assert.equal(h.completions, 0);
+    assert.deepEqual(h.stopped, []);
+    h.setNetworkState({pending: 0});
+    h.advance(250);
+    assert.equal(h.completions, 1);
+    assert.equal(h.networkWatchers, 0);
+});
+
+test('a second overlapping download keeps the calculator waiting', () => {
+    const h = createHarness({trackNetwork: true});
+    h.setProgress({gradeCount: 2, assignmentCount: 2, hasAllGradeData: true});
+    h.setNetworkState({pending: 2});
+    h.loader.start();
+    h.advance(2500);
+    h.setNetworkState({pending: 1});
+    h.advance(2500);
+    assert.equal(h.completions, 0);
+    h.setNetworkState({pending: 0});
+    h.advance(250);
+    assert.equal(h.completions, 1);
+});
+
+test('failed downloads never enable a partial calculator', () => {
+    const h = createHarness({trackNetwork: true});
+    h.setNetworkState({pending: 1});
+    h.loader.start();
+    h.advance(100);
+    h.setNetworkState({pending: 0, failed: true});
+    h.advance(1000);
+    assert.equal(h.completions, 0);
+    assert.deepEqual(h.stopped, ['network-error']);
+    assert.equal(h.networkWatchers, 0);
+    assert.equal(h.pendingTasks, 0);
+});
+
+test('loss of reliable monitoring restores the conservative completion check', () => {
+    const h = createHarness({trackNetwork: true, quietMs: 1600});
+    h.setProgress({gradeCount: 2, assignmentCount: 2, hasAllGradeData: true});
+    h.loader.start();
+    h.advance(100);
+    h.setNetworkState({available: false});
+    h.advance(400);
+    assert.equal(h.completions, 0);
+    h.advance(1400);
+    assert.equal(h.completions, 1);
+});
+
+test('request completion does not fast-track ambiguous assignment data', () => {
+    const h = createHarness({trackNetwork: true, quietMs: 1600});
+    h.setProgress({gradeCount: 0, assignmentCount: 2, hasAllGradeData: false});
+    h.loader.start();
+    h.advance(500);
+    assert.equal(h.completions, 0);
+    h.advance(1500);
+    assert.equal(h.completions, 1);
+});
+
+test('ungraded titles do not add a long final wait after scores and requests finish', () => {
+    const h = createHarness({trackNetwork: true, quietMs: 1600});
+    h.setProgress({gradeCount: 2, assignmentCount: 3, hasAllGradeData: false, hasPendingGradeData: false});
+    h.loader.start();
+    h.advance(500);
+    assert.equal(h.completions, 1);
+    assert.equal(h.window.scrollY, 0);
+});
+
+test('ungraded titles never bypass unfinished scores or a slow request', () => {
+    const h = createHarness({trackNetwork: true, quietMs: 1600});
+    h.setProgress({gradeCount: 1, assignmentCount: 3, hasAllGradeData: false, hasPendingGradeData: true});
+    h.setPendingLoad(true);
+    h.setNetworkState({pending: 1});
+    h.loader.start();
+    h.advance(2000);
+    h.setPendingLoad(false);
+    h.setProgress({gradeCount: 2, hasPendingGradeData: false});
+    h.mutate();
+    h.advance(1000);
+    assert.equal(h.completions, 0, 'a slow native request must still block completion');
+    h.setNetworkState({pending: 0});
+    h.advance(300);
     assert.equal(h.completions, 1);
 });

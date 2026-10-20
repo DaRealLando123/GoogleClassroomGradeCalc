@@ -1,5 +1,9 @@
-@keyframes whatIfSpinner {
-    to { transform: rotate(360deg); }
+@keyframes whatIfColorThrob {
+    0% { transform: scale(0.95); background-color: #1a73e8; box-shadow: 0 4px 15px rgba(26, 115, 232, 0.4); }
+    25% { background-color: #ea4335; box-shadow: 0 4px 15px rgba(234, 67, 53, 0.4); }
+    50% { transform: scale(1.05); background-color: #f9ab00; box-shadow: 0 4px 15px rgba(249, 171, 0, 0.4); }
+    75% { background-color: #34a853; box-shadow: 0 4px 15px rgba(52, 168, 83, 0.4); }
+    100% { transform: scale(0.95); background-color: #1a73e8; box-shadow: 0 4px 15px rgba(26, 115, 232, 0.4); }
 }
 
 .what-if-overlay {
@@ -10,38 +14,22 @@
 }
 
 .what-if-spinner {
-    width: 32px; height: 32px; border: 3px solid #dadce0; border-top-color: #1a73e8;
-    border-radius: 50%; animation: whatIfSpinner 0.8s linear infinite;
+    width: 60px; height: 60px; background-color: #1a73e8;
+    border-radius: 50%; animation: whatIfColorThrob 3s infinite ease-in-out;
 }
 .what-if-load-card {
     display: flex; flex-direction: column; align-items: center; padding: 20px;
     font: 14px Roboto, Arial, sans-serif; color: #202124; text-align: center;
 }
-.what-if-load-card button {
-    border: 1px solid #dadce0; border-radius: 6px; padding: 8px 12px;
-    background: white; color: #1a73e8; font: inherit; cursor: pointer;
+.what-if-logo {
+    position: fixed; bottom: 12px; left: 12px; z-index: 99998;
+    display: block; width: 48px; height: 48px; padding: 0 !important;
+    background: transparent !important; border: none !important; box-shadow: none !important;
+    opacity: 0.55; pointer-events: none;
 }
-.what-if-load-notice {
-    position: fixed; bottom: 16px; right: 16px; max-width: min(360px, calc(100vw - 32px));
-    background: white; border: 1px solid #dadce0; border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15); z-index: 100000;
-}
-.what-if-load-notice .what-if-spinner { display: none; }
 @media (prefers-reduced-motion: reduce) {
     .what-if-spinner { animation: none; }
 }
-
-.what-if-donate-btn {
-    background: transparent !important;
-    border: none !important;
-    outline: none !important;
-    position: fixed; bottom: 12px; left: 12px; z-index: 99999;
-    display: flex; align-items: center; justify-content: center;
-    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease-in-out; cursor: pointer;
-}
-.what-if-donate-btn:hover { transform: scale(1.05); }
-.what-if-donate-btn:active { transform: scale(0.95); box-shadow: 0 4px 5px rgba(0,0,0,0.14); }
-.what-if-donate-icon { width: 64px; height: 64px; display: block; border-radius: 20%; }
 
 .what-if-input {
     border: 1px solid #dcdcdc !important; border-radius: 4px !important;
@@ -155,24 +143,3 @@
 .what-if-info-icon:hover {
     opacity: 1;
 }
-
-.what-if-modal-links {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-top: 16px;
-}
-
-.what-if-modal-btn {
-    display: block;
-    text-align: center;
-    padding: 10px 16px;
-    border-radius: 6px;
-    text-decoration: none;
-    font-weight: 500;
-    transition: background-color 0.2s;
-}
-
-.donate-btn { background: #29abe2; color: #fff; }
-.discord-btn { background: #5865f2; color: #fff; }
-.site-btn { background: #f1f3f4; color: #202124; }

@@ -2,18 +2,22 @@
 window.createGradeLoader = function createGradeLoader(options) {
     const quietMs = options.quietMs ?? 1600;
     const readyQuietMs = options.readyQuietMs ?? 150;
-    const maxDurationMs = options.maxDurationMs ?? 45000;
+    const maxDurationMs = options.maxDurationMs ?? 0;
     const originalPositions = new Map();
     let active = false;
     let frame = null;
     let checkTimer;
     let timeoutTimer;
     let lastActivity;
+    let lastListActivity;
     let lastTarget;
     let lastHeight;
     let lastViewport;
     let progressDirty = true;
     let lastProgress;
+    let sweepTarget;
+    let nextSweepTop = 0;
+    let unwatchNetwork;
 
     function scrollMetrics(target) {
         const element = target === window ? document.scrollingElement : target;
@@ -30,6 +34,8 @@ window.createGradeLoader = function createGradeLoader(options) {
         mutationObserver.disconnect();
         clearTimeout(checkTimer);
         clearTimeout(timeoutTimer);
+        unwatchNetwork?.();
+        unwatchNetwork = null;
         if (frame !== null) cancelAnimationFrame(frame);
         frame = null;
         if (restorePosition) {
@@ -48,6 +54,11 @@ window.createGradeLoader = function createGradeLoader(options) {
     function step() {
         frame = null;
         if (!active) return;
+        const network = options.network?.getState();
+        if (network?.failed) {
+            stop('network-error');
+            return;
+        }
         const target = options.getScrollTarget();
         if (!target || (target !== window && !target.isConnected)) {
             stop('unavailable');
@@ -61,6 +72,10 @@ window.createGradeLoader = function createGradeLoader(options) {
         }
         if (target !== lastTarget || metrics.height !== lastHeight || metrics.viewport !== lastViewport) {
             lastActivity = now;
+            lastListActivity = now;
+            if (target !== lastTarget || metrics.height < lastHeight - metrics.viewport || metrics.viewport !== lastViewport) {
+                sweepTarget = null;
+            }
             lastTarget = target;
             lastHeight = metrics.height;
             lastViewport = metrics.viewport;
@@ -69,6 +84,7 @@ window.createGradeLoader = function createGradeLoader(options) {
         if (progressDirty) {
             progressDirty = false;
             const progress = options.getProgress();
+            if (!lastProgress || progress.assignmentCount !== lastProgress.assignmentCount) lastListActivity = now;
             if (!lastProgress || progress.gradeCount !== lastProgress.gradeCount ||
                 progress.assignmentCount !== lastProgress.assignmentCount) {
                 lastActivity = now;
@@ -78,18 +94,42 @@ window.createGradeLoader = function createGradeLoader(options) {
         }
 
         const bottom = Math.max(0, metrics.height - metrics.viewport);
+        // Missing grades may hydrate only when their rows enter the viewport.
+        // Overlap each position and allow a paint before advancing again.
+        if (lastProgress?.hasAllGradeData === false && metrics.viewport > 0) {
+            if (sweepTarget !== target) {
+                sweepTarget = target;
+                nextSweepTop = 0;
+            }
+            if (nextSweepTop < bottom) {
+                target.scrollTo({ top: nextSweepTop, left: metrics.left, behavior: 'instant' });
+                nextSweepTop += Math.max(1, metrics.viewport * 0.8);
+                lastActivity = now;
+                lastListActivity = now;
+                scheduleStep();
+                return;
+            }
+        }
         const atBottom = Math.abs(metrics.top - bottom) <= 1;
         if (!atBottom) {
             lastActivity = now;
+            lastListActivity = now;
             target.scrollTo({ top: bottom, left: metrics.left, behavior: 'instant' });
         }
 
-        const pending = options.hasPendingLoad();
+        const pending = network?.pending > 0 || options.hasPendingLoad();
         if (pending) lastActivity = now;
-        // Classroom exposes no documented end-of-list signal. Require a quiet list
-        // at the bottom, and keep waiting while its loading indicator is visible.
-        const settleMs = lastProgress?.hasAllGradeData ? readyQuietMs : quietMs;
-        if (atBottom && !pending && now - lastActivity >= settleMs) {
+        // A complete visible batch does not prove that pagination is finished.
+        // Track list stability separately so late scores need only a short settle
+        // once the assignment list itself has already been quiet.
+        // Titles include ungraded assignments. A fully swept, network-idle list
+        // must not wait for a numeric score to appear on every title.
+        const scoresReady = lastProgress?.hasAllGradeData ||
+            (lastProgress?.hasPendingGradeData === false && lastProgress.gradeCount > 0);
+        const fastCompletion = network?.available && scoresReady;
+        const listQuietMs = fastCompletion ? readyQuietMs : quietMs;
+        const settleMs = fastCompletion || lastProgress?.hasAllGradeData ? readyQuietMs : quietMs;
+        if (atBottom && !pending && now - lastListActivity >= listQuietMs && now - lastActivity >= settleMs) {
             cleanup(false);
             target.scrollTo({ top: 0, left: metrics.left, behavior: 'instant' });
             options.onComplete();
@@ -97,7 +137,8 @@ window.createGradeLoader = function createGradeLoader(options) {
         }
 
         clearTimeout(checkTimer);
-        checkTimer = setTimeout(scheduleStep, 150);
+        const untilReady = Math.max(listQuietMs - (now - lastListActivity), settleMs - (now - lastActivity));
+        checkTimer = setTimeout(scheduleStep, pending ? 250 : Math.max(16, Math.min(250, untilReady)));
     }
 
     const mutationObserver = new MutationObserver(mutations => {
@@ -118,6 +159,7 @@ window.createGradeLoader = function createGradeLoader(options) {
             if (active) return;
             active = true;
             lastActivity = performance.now();
+            lastListActivity = lastActivity;
             mutationObserver.observe(options.root, {
                 childList: true,
                 subtree: true,
@@ -125,7 +167,12 @@ window.createGradeLoader = function createGradeLoader(options) {
                 attributes: true,
                 attributeFilter: ['aria-busy', 'aria-hidden', 'hidden']
             });
-            timeoutTimer = setTimeout(() => stop('timeout'), maxDurationMs);
+            unwatchNetwork = options.network?.watch(() => {
+                lastActivity = performance.now();
+                progressDirty = true;
+                scheduleStep();
+            });
+            if (maxDurationMs > 0) timeoutTimer = setTimeout(() => stop('timeout'), maxDurationMs);
             scheduleStep();
         },
         cancel({ restorePosition = false } = {}) {
