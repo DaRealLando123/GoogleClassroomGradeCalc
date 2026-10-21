@@ -323,7 +323,6 @@ function toggleFieldVisualFeedback(inputEl) {
 }
 
 function injectHypotheticalInputs() {
-    if (!location.href.includes('/sp/')) return;
     injectLogoIndicator();
     if (typeof observer !== 'undefined') observer.disconnect();
 
