@@ -1,4 +1,4 @@
-// Observe completion metadata only. Requests and their contents are never changed.
+// Observe completion metadata`
 const classroomTabs = new Map();
 const classroomPorts = new Map();
 const requestFilter = {
@@ -9,7 +9,6 @@ const requestFilter = {
 function isBackgroundClassroomRequest(details) {
     if (details.type !== 'xmlhttprequest' || !details.url) return false;
     try {
-        // Telemetry and long-lived notification channels are not grade downloads.
         return /\/(?:log|gen_204|collect|jserror|webchannel|channel)(?:\/|$)/i.test(new URL(details.url).pathname);
     } catch (error) { return false; }
 }

@@ -2,3 +2,4 @@ GoogleClassroomGradeCalc.zip
 chrome
 .devcontainer
 run.sh
+.vscode/tasks.json

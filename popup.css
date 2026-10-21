@@ -20,9 +20,20 @@ nav { display: grid; gap: 10px; }
 .menu-button:visited { color: var(--button-text); }
 .menu-button:hover { background-color: var(--button-hover); }
 .menu-button:focus-visible { outline: 2px solid #1a73e8; outline-offset: 3px; }
-.donate-button { --button-background: #e28c29; --button-hover: #d17d1c; --button-text: #202124; }
-.source-button { --button-background: #292929; --button-hover: #424242; --button-text: #ffffff; }
-.site-button { --button-background: #29abe2; --button-hover: #189cd3; --button-text: #202124; }
+.donate-button {
+  --button-background: #ff813f; /* Ko-fi Warm Amber */
+  --button-hover: #e06a28;
+}
+
+.source-button {
+  --button-background: #24292e; /* GitHub Charcoal */
+  --button-hover: #32383f;
+}
+
+.site-button {
+  --button-background: #1a73e8; /* Google Blue */
+  --button-hover: #1557b0;
+}
 .popup-credit { margin: 20px 0 0; font-size: 12px; line-height: 1.5; color: #5f6368; }
 @media (prefers-reduced-motion: reduce) {
     .menu-button { transition: none; }

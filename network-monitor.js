@@ -22,7 +22,6 @@ window.createClassroomNetworkMonitor = function createClassroomNetworkMonitor() 
             });
             port.onDisconnect.addListener(() => {
                 void chrome.runtime.lastError;
-                // A lost monitor cannot establish that an old in-flight request ended.
                 const failed = state.failed || state.pending > 0;
                 state = { available: false, pending: 0, failed, revision: state.revision + 1 };
                 port = null;
@@ -39,7 +38,7 @@ window.createClassroomNetworkMonitor = function createClassroomNetworkMonitor() 
             watching++;
             connect();
             if (!heartbeat && port) {
-                // Keep the worker's request ledger alive even for very slow transfers.
+                // Keep the worker's request alive even on very slow connections
                 heartbeat = setInterval(() => {
                     try { port?.postMessage({ type: 'ping' }); } catch (error) {}
                 }, 20000);
