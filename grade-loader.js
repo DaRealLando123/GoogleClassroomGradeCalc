@@ -1,4 +1,4 @@
-// Loads Classroom's lazy assignment list before the calculator reads its totals.
+// Loads Classroom's assignment list before reading its total
 window.createGradeLoader = function createGradeLoader(options) {
     const quietMs = options.quietMs ?? 1600;
     const readyQuietMs = options.readyQuietMs ?? 150;
@@ -94,8 +94,6 @@ window.createGradeLoader = function createGradeLoader(options) {
         }
 
         const bottom = Math.max(0, metrics.height - metrics.viewport);
-        // Missing grades may hydrate only when their rows enter the viewport.
-        // Overlap each position and allow a paint before advancing again.
         if (lastProgress?.hasAllGradeData === false && metrics.viewport > 0) {
             if (sweepTarget !== target) {
                 sweepTarget = target;
@@ -119,11 +117,7 @@ window.createGradeLoader = function createGradeLoader(options) {
 
         const pending = network?.pending > 0 || options.hasPendingLoad();
         if (pending) lastActivity = now;
-        // A complete visible batch does not prove that pagination is finished.
-        // Track list stability separately so late scores need only a short settle
-        // once the assignment list itself has already been quiet.
-        // Titles include ungraded assignments. A fully swept, network-idle list
-        // must not wait for a numeric score to appear on every title.
+        // A visible bunch does not mean that pagination is finished so we gotta wait.
         const scoresReady = lastProgress?.hasAllGradeData ||
             (lastProgress?.hasPendingGradeData === false && lastProgress.gradeCount > 0);
         const fastCompletion = network?.available && scoresReady;
